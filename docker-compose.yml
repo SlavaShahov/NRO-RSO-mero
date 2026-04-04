@@ -1,0 +1,72 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: rso-postgres
+    env_file: .env
+    environment:
+      POSTGRES_DB: rso_events
+    ports:
+      - "5440:5432"  
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d rso_events"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    image: postgres:16-alpine
+    container_name: rso-migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    volumes:
+      - ./migrations:/migrations:ro
+      - ./docker/init-db.sh:/init-db.sh:ro
+    entrypoint: ["/bin/sh", "-c", "tr -d '\\r' < /init-db.sh | /bin/sh"]
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rso-api
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    env_file: .env
+    environment:
+      APP_ADDR: :8080
+    ports:
+      - "8088:8080"   # 8088 вместо 8080 — чтобы не конфликтовать с другими сервисами
+    restart: unless-stopped
+
+  swagger-ui:
+    image: swaggerapi/swagger-ui:latest
+    container_name: rso-swagger-ui
+    environment:
+      SWAGGER_JSON: /spec/openapi.yaml
+    volumes:
+      - ./openapi.yaml:/spec/openapi.yaml:ro
+    ports:
+      - "8089:8080"   # 8089 вместо 8081
+    restart: unless-stopped
+
+  cleanup:
+    image: postgres:16-alpine
+    container_name: rso-cleanup
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      CLEANUP_INTERVAL_SECONDS: 300
+    volumes:
+      - ./docker/cleanup-revoked.sh:/cleanup.sh:ro
+    entrypoint: ["/bin/sh", "-c", "tr -d '\\r' < /cleanup.sh | /bin/sh"]
+    restart: unless-stopped
+
+volumes:
+  pgdata:
