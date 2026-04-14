@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_DB: rso_events
     ports:
-      - "5440:5432"  
+      - "5440:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -22,10 +22,14 @@ services:
       postgres:
         condition: service_healthy
     env_file: .env
+    environment:
+      POSTGRES_HOST: rso-postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB:   rso_events
     volumes:
       - ./migrations:/migrations:ro
-      - ./docker/init-db.sh:/init-db.sh:ro
-    entrypoint: ["/bin/sh", "-c", "tr -d '\\r' < /init-db.sh | /bin/sh"]
+      - ./docker/run-migrations.sh:/run-migrations.sh:ro
+    entrypoint: ["/bin/sh", "-c", "tr -d '\\r' < /run-migrations.sh | /bin/sh"]
     restart: "no"
 
   api:
@@ -40,7 +44,7 @@ services:
     environment:
       APP_ADDR: :8080
     ports:
-      - "8088:8080"   # 8088 вместо 8080 — чтобы не конфликтовать с другими сервисами
+      - "8088:8080"
     restart: unless-stopped
 
   swagger-ui:
@@ -51,7 +55,7 @@ services:
     volumes:
       - ./openapi.yaml:/spec/openapi.yaml:ro
     ports:
-      - "8089:8080"   # 8089 вместо 8081
+      - "8089:8080"
     restart: unless-stopped
 
   cleanup:

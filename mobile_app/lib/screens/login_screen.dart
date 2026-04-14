@@ -48,7 +48,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  static const _blue = Color(0xFF1E3A8A);
+  //static const _blue = Color(0xFF1E3A8A);
 
   @override
   Widget build(BuildContext context) {
