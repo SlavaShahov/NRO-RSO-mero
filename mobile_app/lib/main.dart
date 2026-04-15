@@ -23,7 +23,7 @@ void main() {
 // Android-эмулятор: 10.0.2.2 = хост-машина
 // Реальный телефон: замени на IP своего ПК (например '192.168.1.5')
 // Cloudflare Tunnel: замени на https://xxx.trycloudflare.com
-const String _apiHost = 'coo542-5-44-168-60.ru.tuna.am';
+const String _apiHost = 'v82v9k-5-44-168-60.ru.tuna.am';
 //const int    _apiPort = 8088;
 
 class RsoApp extends StatelessWidget {

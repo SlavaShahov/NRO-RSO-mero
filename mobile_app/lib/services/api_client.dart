@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -225,6 +226,25 @@ class ApiClient {
     await _post('/api/v1/hq_staff/$requestId/review',
         {'approved': approved, 'comment': comment},
         auth: true);
+  }
+
+  // ── Проверка занятости должности в штабе ─────────────────────────────────
+  /// Возвращает {"available": true/false}
+  Future<Map<String, dynamic>> checkHQPosition(int hqId, int positionId) async =>
+      _get('/api/v1/hq_staff/check_position?hq_id=$hqId&position_id=$positionId',
+          auth: true);
+
+  // ── Аватар ────────────────────────────────────────────────────────────────
+  /// Загрузить аватар на сервер (bytes → base64 → БД)
+  Future<void> uploadAvatar(Uint8List bytes) async {
+    final b64 = base64Encode(bytes);
+    await _post('/api/v1/me/avatar', {'avatar_base64': b64}, auth: true);
+  }
+
+  /// Получить свой аватар с сервера (base64)
+  Future<String> getMyAvatar() async {
+    final res = await _get('/api/v1/me/avatar', auth: true);
+    return (res['avatar_base64'] ?? '') as String;
   }
 
   // ── Notifications ─────────────────────────────────────────────────────────

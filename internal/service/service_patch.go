@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"rso-events/internal/models"
@@ -11,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// Me — получить профиль с правильной ролью
+// Me — профиль с правильной ролью
 func (s *Service) Me(ctx context.Context, userID int) (models.User, error) {
 	u, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil { return u, err }
@@ -26,11 +25,11 @@ func (s *Service) Me(ctx context.Context, userID int) (models.User, error) {
 	return u, nil
 }
 
-// ReviewHQStaffRequest — одобрить/отклонить + уведомить пользователя
+// ReviewHQStaffRequest — одобрить/отклонить + уведомить
 func (s *Service) ReviewHQStaffRequest(ctx context.Context,
 	requestID, reviewerID int, approved bool, comment string) error {
 	if err := s.repo.ReviewHQStaffRequest(ctx, requestID, reviewerID, approved, comment); err != nil {
-		return err
+		return err // ErrHQPositionTaken пробрасывается наверх
 	}
 	reqs, _ := s.repo.GetHQStaffRequestByID(ctx, requestID)
 	if reqs != nil {
@@ -49,7 +48,7 @@ func (s *Service) ReviewHQStaffRequest(ctx context.Context,
 	return nil
 }
 
-// ScanAttendance — сканирует QR-код, отмечает посещение, возвращает данные участника
+// ScanAttendance — сканирует QR, отмечает посещение, возвращает данные участника с аватаром
 func (s *Service) ScanAttendance(ctx context.Context, role string, scannerID int, qrCode string) (*repo.RegistrationInfo, error) {
 	if !isManagerRole(role) { return nil, ErrForbidden }
 	parsed, err := uuid.Parse(qrCode)
@@ -64,6 +63,21 @@ func (s *Service) ScanAttendance(ctx context.Context, role string, scannerID int
 	return info, nil
 }
 
+// SaveAvatar — сохранить base64 аватара в БД
+func (s *Service) SaveAvatar(ctx context.Context, userID int, base64Data string) error {
+	return s.repo.SaveAvatar(ctx, userID, base64Data)
+}
+
+// GetAvatar — получить base64 аватара из БД
+func (s *Service) GetAvatar(ctx context.Context, userID int) (string, error) {
+	return s.repo.GetAvatar(ctx, userID)
+}
+
+// IsHQPositionAvailable — проверить свободна ли должность в штабе
+func (s *Service) IsHQPositionAvailable(ctx context.Context, hqID, positionID int) (bool, error) {
+	return s.repo.IsHQPositionAvailable(ctx, hqID, positionID)
+}
+
 func isManagerRole(role string) bool {
 	switch role {
 	case "superadmin", "regional_admin", "local_admin",
@@ -72,6 +86,3 @@ func isManagerRole(role string) bool {
 	}
 	return false
 }
-
-var _ = errors.New
-var _ = models.User{}

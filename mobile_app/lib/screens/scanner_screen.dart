@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
@@ -13,11 +16,11 @@ class ScannerScreen extends StatefulWidget {
 
 class _ScannerScreenState extends State<ScannerScreen> {
   final MobileScannerController _ctrl =
-      MobileScannerController(detectionSpeed: DetectionSpeed.noDuplicates);
+  MobileScannerController(detectionSpeed: DetectionSpeed.noDuplicates);
   bool _isScanning   = true;
   bool _isProcessing = false;
   String? _error;
-  Map<String, dynamic>? _scanResult;
+  Map<String, dynamic>? _result;
 
   @override
   void dispose() { _ctrl.dispose(); super.dispose(); }
@@ -28,22 +31,20 @@ class _ScannerScreenState extends State<ScannerScreen> {
     if (qrCode == null) return;
 
     setState(() {
-      _isScanning   = false;
-      _isProcessing = true;
-      _error        = null;
-      _scanResult   = null;
+      _isScanning = false; _isProcessing = true;
+      _error = null; _result = null;
     });
     await _ctrl.stop();
 
     try {
       final api = context.read<AuthProvider>().api;
-      final result = await api.scanAttendance(qrCode);
-      if (mounted) setState(() => _scanResult = result);
+      final res = await api.scanAttendance(qrCode);
+      if (mounted) setState(() => _result = res);
     } on ApiException catch (e) {
       String msg = e.message;
       if (e.statusCode == 409) msg = 'Посещение уже отмечено ранее';
       if (e.statusCode == 404) msg = 'QR-код не найден';
-      if (e.statusCode == 403) msg = 'Недостаточно прав для сканирования';
+      if (e.statusCode == 403) msg = 'Нет прав для сканирования';
       if (mounted) {
         setState(() { _error = msg; _isScanning = true; });
         await _ctrl.start();
@@ -59,11 +60,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 
   void _reset() {
-    setState(() { _scanResult = null; _error = null; _isScanning = true; });
+    setState(() { _result = null; _error = null; _isScanning = true; });
     _ctrl.start();
   }
-
-  static const _blue = Color(0xFF1E3A8A);
 
   @override
   Widget build(BuildContext context) {
@@ -71,11 +70,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         title: const Text('Сканировать QR-код'),
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
+        backgroundColor: Colors.black, foregroundColor: Colors.white,
         actions: [
-          IconButton(
-              icon: const Icon(Icons.flash_on),
+          IconButton(icon: const Icon(Icons.flash_on),
               onPressed: () => _ctrl.toggleTorch()),
         ],
       ),
@@ -83,69 +80,56 @@ class _ScannerScreenState extends State<ScannerScreen> {
         if (_isScanning)
           MobileScanner(controller: _ctrl, onDetect: _onDetect),
 
-        if (_isScanning && _scanResult == null)
-          Center(
-            child: Container(
-              width: 260, height: 260,
-              decoration: BoxDecoration(
-                  border: Border.all(color: Colors.blueAccent, width: 3),
-                  borderRadius: BorderRadius.circular(16)),
-            ),
-          ),
+        // Рамка прицела
+        if (_isScanning && _result == null)
+          Center(child: Container(
+            width: 260, height: 260,
+            decoration: BoxDecoration(
+                border: Border.all(color: Colors.blueAccent, width: 3),
+                borderRadius: BorderRadius.circular(16)),
+          )),
 
-        if (_isScanning && _scanResult == null && !_isProcessing)
-          const Positioned(
-            bottom: 130, left: 0, right: 0,
-            child: Center(child: Text(
-              'Наведи камеру на QR-код участника',
-              style: TextStyle(color: Colors.white70, fontSize: 14),
-            )),
-          ),
+        if (_isScanning && _result == null && !_isProcessing)
+          const Positioned(bottom: 130, left: 0, right: 0,
+              child: Center(child: Text('Наведи камеру на QR-код участника',
+                  style: TextStyle(color: Colors.white70, fontSize: 14)))),
 
         if (_isProcessing)
           const Center(child: CircularProgressIndicator(color: Colors.white)),
 
         if (_error != null)
-          Positioned(
-            top: 80, left: 16, right: 16,
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                  color: Colors.red.shade700,
-                  borderRadius: BorderRadius.circular(8)),
-              child: Text(_error!,
-                  style: const TextStyle(color: Colors.white),
-                  textAlign: TextAlign.center),
-            ),
-          ),
+          Positioned(top: 80, left: 16, right: 16,
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                    color: Colors.red.shade700,
+                    borderRadius: BorderRadius.circular(8)),
+                child: Text(_error!,
+                    style: const TextStyle(color: Colors.white),
+                    textAlign: TextAlign.center),
+              )),
 
-        if (_scanResult != null)
+        // Результат сканирования
+        if (_result != null)
           Align(
             alignment: Alignment.bottomCenter,
             child: Container(
               width: double.infinity,
               constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.75),
+                  maxHeight: MediaQuery.of(context).size.height * 0.78),
               decoration: const BoxDecoration(
                 color: Colors.white,
-                borderRadius:
-                    BorderRadius.vertical(top: Radius.circular(24)),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
               ),
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
                 child: Column(children: [
-                  Container(width: 48, height: 4,
+                  // Ручка
+                  Container(width: 48, height: 4, margin: const EdgeInsets.only(bottom: 12),
                       decoration: BoxDecoration(color: Colors.black12,
                           borderRadius: BorderRadius.circular(2))),
-                  const SizedBox(height: 12),
 
-                  const Icon(Icons.check_circle, size: 44, color: Colors.green),
-                  const SizedBox(height: 6),
-                  const Text('Посещение отмечено',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 16),
-
-                  _buildUserCard(_scanResult!),
+                  _buildCard(_result!),
                   const SizedBox(height: 16),
 
                   Row(children: [
@@ -165,25 +149,34 @@ class _ScannerScreenState extends State<ScannerScreen> {
     );
   }
 
-  Widget _buildUserCard(Map<String, dynamic> result) {
+  Widget _buildCard(Map<String, dynamic> result) {
     final user  = result['user']  as Map<String, dynamic>? ?? {};
     final event = result['event'] as Map<String, dynamic>? ?? {};
 
     final fullName     = (user['full_name']            ?? '') as String;
+    final avatarB64    = (user['avatar_base64']         ?? '') as String;
     final unitName     = (user['unit_name']             ?? '') as String;
     final hqName       = (user['hq_name']               ?? '') as String;
     final positionName = (user['position_name']         ?? '') as String;
     final phone        = (user['phone']                 ?? '') as String;
-    final cardNumber   = (user['member_card_number']    ?? '') as String;
+    final cardNum      = (user['member_card_number']    ?? '') as String;
     final cardLoc      = (user['member_card_location']  ?? 'with_user') as String;
     final eventTitle   = (event['title']                ?? '') as String;
     final eventDate    = (event['event_date']           ?? '') as String;
 
-    // Инициалы из полного имени (Фамилия Имя Отчество)
+    // Декодируем аватар из base64 если есть
+    Uint8List? avatarBytes;
+    if (avatarB64.isNotEmpty) {
+      try { avatarBytes = base64Decode(avatarB64); } catch (_) {}
+    }
+
+    // Инициалы (Фамилия + Имя)
     final parts = fullName.split(' ').where((p) => p.isNotEmpty).toList();
     final initials = parts.length >= 2
-        ? parts[0][0] + parts[1][0]
+        ? '${parts[0][0]}${parts[1][0]}'
         : parts.isNotEmpty ? parts[0][0] : '?';
+
+    const blue = Color(0xFF1E3A8A);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -193,99 +186,106 @@ class _ScannerScreenState extends State<ScannerScreen> {
         border: Border.all(color: Colors.black12),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        // Аватар + имя
-        Row(children: [
-          CircleAvatar(
-            radius: 32,
+
+        // ── Галочка + Аватар + ФИО ──────────────────────────────────────
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // Аватар
+          avatarBytes != null
+              ? CircleAvatar(radius: 38,
+              backgroundImage: MemoryImage(avatarBytes))
+              : CircleAvatar(
+            radius: 38,
             backgroundColor: const Color(0xFFEAF2FF),
             child: Text(initials.toUpperCase(),
                 style: const TextStyle(
-                    fontSize: 20, fontWeight: FontWeight.bold,
-                    color: _blue)),
+                    fontSize: 22, fontWeight: FontWeight.bold,
+                    color: blue)),
           ),
           const SizedBox(width: 14),
           Expanded(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(fullName,
-                style: const TextStyle(
-                    fontWeight: FontWeight.w800, fontSize: 16)),
-            if (positionName.isNotEmpty)
-              Container(
-                margin: const EdgeInsets.only(top: 3),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                    color: const Color(0xFFEAF2FF),
-                    borderRadius: BorderRadius.circular(6)),
-                child: Text(positionName,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(children: [
+                  Icon(Icons.check_circle, color: Colors.green, size: 18),
+                  SizedBox(width: 4),
+                  Text('Посещение отмечено',
+                      style: TextStyle(color: Colors.green,
+                          fontWeight: FontWeight.w600, fontSize: 13)),
+                ]),
+                const SizedBox(height: 4),
+                Text(fullName,
                     style: const TextStyle(
-                        color: _blue, fontSize: 12,
-                        fontWeight: FontWeight.w600)),
-              ),
-          ])),
+                        fontWeight: FontWeight.w800, fontSize: 17)),
+                if (positionName.isNotEmpty)
+                  Container(
+                    margin: const EdgeInsets.only(top: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                        color: const Color(0xFFEAF2FF),
+                        borderRadius: BorderRadius.circular(6)),
+                    child: Text(positionName,
+                        style: const TextStyle(
+                            color: blue, fontSize: 12,
+                            fontWeight: FontWeight.w600)),
+                  ),
+              ])),
         ]),
+
         const SizedBox(height: 14),
         const Divider(height: 1),
         const SizedBox(height: 10),
 
-        // Отряд / штаб
+        // ── Отряд / штаб ─────────────────────────────────────────────────
         if (unitName.isNotEmpty) _row(Icons.groups_outlined, unitName),
         if (hqName.isNotEmpty)   _row(Icons.school_outlined, hqName),
         if (phone.isNotEmpty)    _row(Icons.phone_outlined, phone),
 
-        // Членский билет
+        // ── Членский билет ────────────────────────────────────────────────
         const SizedBox(height: 4),
         Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: cardNumber.isEmpty ? Colors.grey.shade50 : Colors.green.shade50,
+            color: cardNum.isEmpty ? Colors.grey.shade50 : Colors.green.shade50,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-                color: cardNumber.isEmpty
-                    ? Colors.black12 : Colors.green.shade200),
+                color: cardNum.isEmpty ? Colors.black12 : Colors.green.shade200),
           ),
           child: Row(children: [
-            Icon(
-              cardLoc == 'in_hq'
-                  ? Icons.home_work_outlined
-                  : Icons.card_membership_outlined,
-              size: 18,
-              color: cardNumber.isEmpty
-                  ? Colors.black38 : Colors.green.shade700),
+            Icon(cardLoc == 'in_hq'
+                ? Icons.home_work_outlined
+                : Icons.card_membership_outlined,
+                size: 18,
+                color: cardNum.isEmpty ? Colors.black38 : Colors.green.shade700),
             const SizedBox(width: 8),
             Expanded(child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(
-                cardNumber.isNotEmpty
-                    ? 'Членский билет № $cardNumber'
-                    : 'Номер билета не указан',
-                style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                    color: cardNumber.isEmpty
-                        ? Colors.black38 : Colors.black87)),
-              Text(
-                cardLoc == 'in_hq' ? '📍 Находится в РШ' : '📋 На руках у владельца',
-                style: TextStyle(
-                    fontSize: 11,
-                    color: cardLoc == 'in_hq'
-                        ? Colors.orange.shade700
-                        : Colors.green.shade700)),
+              Text(cardNum.isNotEmpty
+                  ? 'Членский билет № $cardNum'
+                  : 'Номер билета не указан',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w600, fontSize: 13,
+                      color: cardNum.isEmpty ? Colors.black38 : Colors.black87)),
+              Text(cardLoc == 'in_hq'
+                  ? '📍 В региональном штабе'
+                  : '📋 На руках у участника',
+                  style: TextStyle(fontSize: 11,
+                      color: cardLoc == 'in_hq'
+                          ? Colors.orange.shade700
+                          : Colors.green.shade700)),
             ])),
           ]),
         ),
 
-        // Мероприятие
+        // ── Мероприятие ───────────────────────────────────────────────────
         if (eventTitle.isNotEmpty) ...[
           const SizedBox(height: 10),
           const Divider(height: 1),
           const SizedBox(height: 8),
           Row(children: [
-            const Icon(Icons.event_outlined, size: 16, color: _blue),
+            const Icon(Icons.event_outlined, size: 16, color: blue),
             const SizedBox(width: 8),
-            Expanded(child: Text('$eventTitle • $eventDate',
-                style: const TextStyle(
-                    fontSize: 12, color: Colors.black54))),
+            Expanded(child: Text('$eventTitle  •  $eventDate',
+                style: const TextStyle(fontSize: 12, color: Colors.black54))),
           ]),
         ],
       ]),
@@ -295,7 +295,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
   Widget _row(IconData icon, String text) => Padding(
     padding: const EdgeInsets.only(bottom: 8),
     child: Row(children: [
-      Icon(icon, size: 16, color: _blue),
+      Icon(icon, size: 16, color: const Color(0xFF1E3A8A)),
       const SizedBox(width: 8),
       Expanded(child: Text(text,
           style: const TextStyle(fontSize: 13, color: Colors.black87))),

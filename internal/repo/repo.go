@@ -166,6 +166,7 @@ type RegistrationInfo struct {
 	RegistrationID     int    `json:"registration_id"`
 	UserID             int    `json:"user_id"`
 	FullName           string `json:"full_name"`
+	AvatarBase64       string `json:"avatar_base64"`
 	UnitName           string `json:"unit_name"`
 	HqName             string `json:"hq_name"`
 	PositionName       string `json:"position_name"`
@@ -590,3 +591,31 @@ func (r *Repository) CleanupExpiredRevokedTokens(ctx context.Context) error {
 var ErrAlreadyAttended = fmt.Errorf("attendance already marked")
 
 func IsNotFound(err error) bool { return err == pgx.ErrNoRows }
+
+// SaveAvatar — сохраняет base64 аватар
+func (r *Repository) SaveAvatar(ctx context.Context, userID int, base64Data string) error {
+	_, err := r.db.Exec(ctx, `UPDATE users SET avatar_url = $2 WHERE id = $1`, userID, base64Data)
+	return err
+}
+
+// GetAvatar — возвращает base64 аватара
+func (r *Repository) GetAvatar(ctx context.Context, userID int) (string, error) {
+	var avatar string
+	err := r.db.QueryRow(ctx, `SELECT COALESCE(avatar_url, '') FROM users WHERE id = $1`, userID).Scan(&avatar)
+	if err == pgx.ErrNoRows {
+		return "", nil
+	}
+	return avatar, err
+}
+
+// IsHQPositionAvailable — проверяет, свободна ли должность в штабе
+func (r *Repository) IsHQPositionAvailable(ctx context.Context, hqID, positionID int) (bool, error) {
+	var count int
+	err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM hq_staff 
+		WHERE local_headquarters_id = $1 
+		  AND hq_position_id = $2 
+		  AND status = 'approved'
+	`, hqID, positionID).Scan(&count)
+	return count == 0, err
+}

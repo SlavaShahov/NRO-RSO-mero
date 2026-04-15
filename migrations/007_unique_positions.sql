@@ -1,22 +1,15 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- Миграция 007: Уникальность должностей командира/комиссара/мастера в отряде
--- и командира/комиссара/мастера штаба в штабе
+-- Миграция 007: Уникальность должностей (командир, комиссар, мастер)
 -- ═══════════════════════════════════════════════════════════════════════════
 
--- В отряде может быть только один командир, один комиссар, один мастер.
--- Бойцов и кандидатов — сколько угодно.
-CREATE UNIQUE INDEX IF NOT EXISTS users_unique_commander
+-- 1. В одном отряде может быть только один командир, один комиссар и один мастер
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_unit_leader_positions
     ON users (unit_id, unit_position_id)
-    WHERE unit_id IS NOT NULL
-      AND unit_position_id IN (
-          SELECT id FROM unit_positions WHERE code IN ('commander','commissioner','master')
-      );
+    WHERE unit_id IS NOT NULL 
+      AND unit_position_id IN (1, 2, 3);   -- IDs командира, комиссара, мастера
 
--- В штабе может быть только один командир штаба, один комиссар штаба и один мастер штаба.
--- работников — сколько угодно.
-CREATE UNIQUE INDEX IF NOT EXISTS hq_staff_unique_commander
+-- 2. В одном штабе может быть только один командир штаба, комиссар и инженер/мастер
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hq_staff_unique_leader_positions
     ON hq_staff (local_headquarters_id, hq_position_id)
     WHERE status = 'approved'
-      AND hq_position_id IN (
-          SELECT id FROM hq_positions WHERE code IN ('commander','commissioner', 'master')
-      );
+      AND hq_position_id IN (1, 2, 3);     -- IDs должностей штаба (commander, commissioner, engineer)
