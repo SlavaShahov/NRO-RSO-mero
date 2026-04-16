@@ -54,7 +54,7 @@ class AdminDashboardScreen extends StatelessWidget {
               child: Row(children: [
                 CircleAvatar(
                   // ← Исправлено: withValues() вместо withOpacity()
-                  backgroundColor: Colors.white.withValues(alpha: 0.2),
+                  backgroundColor: Colors.white.withOpacity(0.2),
                   child: Text(
                     user.firstName.isNotEmpty
                         ? user.firstName[0].toUpperCase()
@@ -152,41 +152,41 @@ class AdminDashboardScreen extends StatelessWidget {
             )
           else
             ...events.events.take(5).map((e) => ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    width: 44, height: 44,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEAF2FF),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(e.dayStr,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF1E3A8A),
-                                fontSize: 16)),
-                        Text(e.monthStr,
-                            style: const TextStyle(
-                                fontSize: 9, color: Colors.black54)),
-                      ],
-                    ),
-                  ),
-                  title: Text(e.title,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 14),
-                      overflow: TextOverflow.ellipsis),
-                  subtitle: Text(e.location,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12)),
-                  trailing: e.hasRegistration
-                      ? Icon(Icons.check_circle,
-                          color: Colors.green.shade400, size: 20)
-                      : null,
-                  onTap: () =>
-                      Navigator.pushNamed(context, '/event', arguments: e),
-                )),
+              contentPadding: EdgeInsets.zero,
+              leading: Container(
+                width: 44, height: 44,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF2FF),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(e.dayStr,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1E3A8A),
+                            fontSize: 16)),
+                    Text(e.monthStr,
+                        style: const TextStyle(
+                            fontSize: 9, color: Colors.black54)),
+                  ],
+                ),
+              ),
+              title: Text(e.title,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w600, fontSize: 14),
+                  overflow: TextOverflow.ellipsis),
+              subtitle: Text(e.location,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12)),
+              trailing: e.hasRegistration
+                  ? Icon(Icons.check_circle,
+                  color: Colors.green.shade400, size: 20)
+                  : null,
+              onTap: () =>
+                  Navigator.pushNamed(context, '/event', arguments: e),
+            )),
         ],
       ),
     );
@@ -289,9 +289,9 @@ class _CreateEventSheetState extends State<_CreateEventSheet> {
         'description':        _desc.text.trim(),
         'location':           _location.text.trim(),
         'event_date':
-            '${_date!.year}-${_date!.month.toString().padLeft(2,'0')}-${_date!.day.toString().padLeft(2,'0')}',
+        '${_date!.year}-${_date!.month.toString().padLeft(2,'0')}-${_date!.day.toString().padLeft(2,'0')}',
         'start_time':
-            '${_time!.hour.toString().padLeft(2,'0')}:${_time!.minute.toString().padLeft(2,'0')}',
+        '${_time!.hour.toString().padLeft(2,'0')}:${_time!.minute.toString().padLeft(2,'0')}',
         'level_code':         _levelCode,
         'type_code':          _typeCode,
         'participation_mode': _participationMode,
@@ -363,7 +363,7 @@ class _CreateEventSheetState extends State<_CreateEventSheet> {
 
           // Уровень
           DropdownButtonFormField<String>(
-            initialValue: _levelCode,        // ← исправлено: initialValue вместо value
+            value: _levelCode,
             decoration: const InputDecoration(
                 labelText: 'Уровень',
                 border: OutlineInputBorder(
@@ -377,7 +377,7 @@ class _CreateEventSheetState extends State<_CreateEventSheet> {
 
           // Тип
           DropdownButtonFormField<String>(
-            initialValue: _typeCode,         // ← исправлено: initialValue вместо value
+            value: _typeCode,
             decoration: const InputDecoration(
                 labelText: 'Тип',
                 border: OutlineInputBorder(
@@ -391,7 +391,7 @@ class _CreateEventSheetState extends State<_CreateEventSheet> {
 
           // Режим участия
           DropdownButtonFormField<String>(
-            initialValue: _participationMode,
+            value: _participationMode,
             decoration: const InputDecoration(
                 labelText: 'Режим участия',
                 border: OutlineInputBorder(
@@ -415,8 +415,8 @@ class _CreateEventSheetState extends State<_CreateEventSheet> {
               onPressed: _busy ? null : _submit,
               child: _busy
                   ? const SizedBox(height: 20, width: 20,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white))
                   : const Text('Создать мероприятие'),
             ),
           ),
@@ -436,7 +436,7 @@ class _CreateEventSheetState extends State<_CreateEventSheet> {
             border: const OutlineInputBorder(
                 borderRadius: BorderRadius.all(Radius.circular(10))),
             contentPadding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
           ),
         ),
       );
@@ -450,14 +450,14 @@ class _Kpi extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Column(children: [
-        Text(value,
-            style: const TextStyle(
-                fontSize: 30,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF1E3A8A))),
-        Text(title,
-            style: const TextStyle(fontSize: 11, color: Colors.black54)),
-      ]);
+    Text(value,
+        style: const TextStyle(
+            fontSize: 30,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF1E3A8A))),
+    Text(title,
+        style: const TextStyle(fontSize: 11, color: Colors.black54)),
+  ]);
 }
 
 class _ActionCard extends StatelessWidget {
@@ -475,40 +475,40 @@ class _ActionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => InkWell(
-        onTap: onTap,
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(12),
+    child: Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.all(14),
+        border: Border.all(color: Colors.black12),
+      ),
+      child: Row(children: [
+        Container(
+          padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.black12),
-          ),
-          child: Row(children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                  // ← Исправлено: withValues() вместо withOpacity()
-                  color: color.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(10)),
-              child: Icon(icon, color: color, size: 24),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w700, fontSize: 15)),
-                  Text(subtitle,
-                      style: const TextStyle(
-                          color: Colors.black54, fontSize: 13)),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right, color: Colors.black38),
-          ]),
+            // ← Исправлено: withValues() вместо withOpacity()
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10)),
+          child: Icon(icon, color: color, size: 24),
         ),
-      );
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 15)),
+              Text(subtitle,
+                  style: const TextStyle(
+                      color: Colors.black54, fontSize: 13)),
+            ],
+          ),
+        ),
+        const Icon(Icons.chevron_right, color: Colors.black38),
+      ]),
+    ),
+  );
 }

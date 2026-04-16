@@ -201,16 +201,21 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         memberCardNumber:    _cardLocation == 'with_user'
             ? _memberCard.text.trim() : '',
         memberCardLocation:  _cardLocation,
-        unitId:              _selectedUnit?.id,
+        unitId:              _selectedUnit?.id,  // и бойцы и штабники могут быть в отряде
         unitPositionId:      _regType == _RegType.fighter ? _selectedPosition?.id : null,
         hqId:                _selectedHQ?.id,
         hqPositionId:        _regType == _RegType.hqStaff ? _selectedHQPosition?.id : null,
       );
 
-      // Сохраняем аватар если выбран
+      // Сохраняем аватар локально и загружаем на сервер
       final user = auth.user;
       if (_avatarFile != null && user != null) {
         await AvatarService().saveFromFile(user.id, _avatarFile!);
+        // Загружаем на сервер — чтобы аватар был виден при сканировании QR
+        try {
+          final bytes = await _avatarFile!.readAsBytes();
+          await widget.api.uploadAvatar(bytes);
+        } catch (_) {}
       }
 
       if (!mounted) return;
@@ -363,21 +368,29 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
               onChanged: _busy ? null : (p) => setState(() => _selectedHQPosition = p),
             ),
             const SizedBox(height: 12),
-            const Text('Линейный отряд (если состоишь)', style: TextStyle(fontSize: 14)),
+            // Штабник тоже может состоять в линейном отряде
+            const Text('Линейный отряд (необязательно)',
+                style: TextStyle(fontSize: 14)),
             const SizedBox(height: 6),
             if (_loadingUnits)
               const Center(child: CircularProgressIndicator())
             else
-              _drop<UnitItem>(
+              _drop<UnitItem?>(
                 value: _selectedUnit,
-                hint: _selectedHQ == null ? 'Сначала выберите штаб'
-                    : _units.isEmpty ? 'Нет отрядов' : 'Выберите отряд (необязательно)',
+                hint: _selectedHQ == null
+                    ? 'Сначала выберите штаб'
+                    : 'Выберите отряд (необязательно)',
                 items: [
-                  const DropdownMenuItem<UnitItem>(value: null, child: Text('— Не состою в отряде')),
-                  ..._units.map((u) => DropdownMenuItem(
-                      value: u, child: Text(u.name, overflow: TextOverflow.ellipsis))).toList(),
+                  const DropdownMenuItem<UnitItem?>(
+                      value: null,
+                      child: Text('— Не состою в отряде',
+                          style: TextStyle(color: Colors.black45))),
+                  ..._units.map((u) => DropdownMenuItem<UnitItem?>(
+                      value: u,
+                      child: Text(u.name,
+                          overflow: TextOverflow.ellipsis))).toList(),
                 ],
-                onChanged: (_busy || _selectedHQ == null) ? null
+                onChanged: _busy ? null
                     : (u) => setState(() => _selectedUnit = u),
               ),
           ],

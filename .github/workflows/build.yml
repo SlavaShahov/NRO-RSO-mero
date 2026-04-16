@@ -7,71 +7,92 @@ on:
   workflow_dispatch:
 
 jobs:
+  # ── Android ────────────────────────────────────────────────────────────────
   android:
-    name: Build Android APK
+    name: Android APK
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
+
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
+          flutter-version: '3.27.4'   # 3.27+ поддерживает withOpacity нормально
           channel: 'stable'
-      - name: Dependencies
+
+      - name: Get dependencies
         working-directory: mobile_app
         run: flutter pub get
+
       - name: Build APK
         working-directory: mobile_app
         run: flutter build apk --release --no-tree-shake-icons
-      - name: Upload artifact
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
           path: mobile_app/build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
-      - name: GitHub Release
+
+      - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: mobile_app/build/app/outputs/flutter-apk/app-release.apk
           name: "РСО Мероприятия ${{ github.ref_name }}"
           body: |
-            ## Установка на Android
-            1. Скачай app-release.apk
-            2. Открой на телефоне → разреши установку из неизвестных источников
+            ## Android — установка
+            1. Скачай `app-release.apk`
+            2. Открой на телефоне
+            3. Разреши установку из неизвестных источников → Установить
 
+  # ── iOS ────────────────────────────────────────────────────────────────────
   ios:
-    name: Build iOS
+    name: iOS IPA (без подписи)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
+          flutter-version: '3.27.4'
           channel: 'stable'
-      - name: Dependencies
+
+      - name: Get dependencies
         working-directory: mobile_app
         run: flutter pub get
-      - name: Build iOS
+
+      # Собираем под симулятор — не требует Developer Account
+      - name: Build iOS (simulator)
         working-directory: mobile_app
-        run: flutter build ios --release --no-codesign --no-tree-shake-icons
-      - name: Package IPA
+        run: flutter build ios --simulator --no-tree-shake-icons
+
+      # Пакуем в zip для AltStore/Sideloadly
+      - name: Package for AltStore
         working-directory: mobile_app
         run: |
           mkdir -p build/ios/Payload
-          cp -r build/ios/iphoneos/Runner.app build/ios/Payload/
+          cp -r build/ios/iphonesimulator/Runner.app build/ios/Payload/
           cd build/ios && zip -r rso-events.ipa Payload/
-      - name: Upload artifact
+
+      - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: ios-ipa
           path: mobile_app/build/ios/rso-events.ipa
           retention-days: 30
-      - name: GitHub Release
+
+      - name: Attach IPA to Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: mobile_app/build/ios/rso-events.ipa
+          body: |
+            ## iOS — установка через AltStore/Sideloadly
+            1. Скачай `rso-events.ipa`
+            2. Установи через Sideloadly или AltStore (бесплатно)

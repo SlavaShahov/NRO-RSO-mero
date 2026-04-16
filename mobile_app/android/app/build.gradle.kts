@@ -6,8 +6,10 @@ plugins {
 
 android {
     namespace = "com.example.rso_events_mobile"
-    compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    compileSdk = 36          // было 34 — меняем на 35
+    ndkVersion = "27.0.12077973"  // добавить эту строку
+    //compileSdk = flutter.compileSdkVersion
+    //ndkVersion = flutter.ndkVersion
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
