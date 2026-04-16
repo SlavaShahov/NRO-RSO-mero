@@ -63,8 +63,6 @@ func (h *Handler) Register(r chi.Router) {
 			r.Get("/hq_staff/pending",          h.hqStaffPending)
 			r.Post("/hq_staff/{id}/review",     h.hqStaffReview)
 			r.Get("/hq_staff/check_position",   h.hqStaffCheckPosition)
-
-			// Avatar
 			r.Post("/me/avatar",                h.uploadAvatar)
 			r.Get("/me/avatar",                 h.getAvatar)
 
@@ -454,7 +452,8 @@ func (h *Handler) hqStaffRequest(w http.ResponseWriter, r *http.Request) {
 	if u.MemberCardNumber != "" { body += "\n🪪 Билет № " + u.MemberCardNumber }
 	go func(bgCtx context.Context, rID int, b string) {
 		_ = h.svc.NotifyAdmins(bgCtx, "hq_staff_request",
-			"📋 Новая заявка на должность ШСО", b, map[string]any{"request_id": rID})
+			"📋 Новая заявка на должность ШСО", b,
+			map[string]any{"request_id": rID})
 	}(context.Background(), reqID, body)
 
 	writeJSON(w, 201, map[string]any{"request_id": reqID, "status": "pending"})
@@ -490,8 +489,8 @@ func (h *Handler) hqStaffReview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid json"); return
 	}
 	if err := h.svc.ReviewHQStaffRequest(r.Context(), reqID, reviewerID, in.Approved, in.Comment); err != nil {
-		if errors.Is(err, repo.ErrPositionTaken) {
-			writeError(w, 409, "Эта должность уже занята в данном штабе. Сначала снимите предыдущего командира/комиссара.")
+		if errors.Is(err, repo.ErrHQPositionTaken) {
+			writeError(w, 409, "Эта должность уже занята в данном штабе")
 		} else {
 			writeError(w, 500, "review failed")
 		}
@@ -560,13 +559,13 @@ func (h *Handler) uploadAvatar(w http.ResponseWriter, r *http.Request) {
 	if !ok { writeError(w, 401, "unauthorized"); return }
 	var in struct{ AvatarBase64 string `json:"avatar_base64"` }
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.AvatarBase64 == "" {
-		writeError(w, 400, "avatar_base64 is required"); return
+		writeError(w, 400, "avatar_base64 required"); return
 	}
-	if len(in.AvatarBase64) > 2*1024*1024 { // 2MB лимит
-		writeError(w, 400, "avatar too large (max 2MB)"); return
+	if len(in.AvatarBase64) > 2*1024*1024 {
+		writeError(w, 400, "avatar too large (max ~1.5MB)"); return
 	}
 	if err := h.svc.SaveAvatar(r.Context(), uid, in.AvatarBase64); err != nil {
-		writeError(w, 500, "save avatar failed"); return
+		writeError(w, 500, "save failed"); return
 	}
 	writeJSON(w, 200, map[string]any{"status": "ok"})
 }
@@ -575,21 +574,19 @@ func (h *Handler) getAvatar(w http.ResponseWriter, r *http.Request) {
 	uid, ok := r.Context().Value(middleware.UserIDKey).(int)
 	if !ok { writeError(w, 401, "unauthorized"); return }
 	avatar, err := h.svc.GetAvatar(r.Context(), uid)
-	if err != nil { writeError(w, 500, "get avatar failed"); return }
+	if err != nil { writeError(w, 500, "get failed"); return }
 	writeJSON(w, 200, map[string]any{"avatar_base64": avatar})
 }
-
-// ── HQ Position availability check ───────────────────────────────────────────
 
 func (h *Handler) hqStaffCheckPosition(w http.ResponseWriter, r *http.Request) {
 	hqID, err1 := strconv.Atoi(r.URL.Query().Get("hq_id"))
 	posID, err2 := strconv.Atoi(r.URL.Query().Get("position_id"))
 	if err1 != nil || err2 != nil || hqID == 0 || posID == 0 {
-		writeError(w, 400, "hq_id and position_id are required"); return
+		writeError(w, 400, "hq_id and position_id required"); return
 	}
-	available, err := h.svc.IsHQPositionAvailable(r.Context(), hqID, posID)
+	avail, err := h.svc.IsHQPositionAvailable(r.Context(), hqID, posID)
 	if err != nil { writeError(w, 500, "check failed"); return }
-	writeJSON(w, 200, map[string]any{"available": available})
+	writeJSON(w, 200, map[string]any{"available": avail})
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {

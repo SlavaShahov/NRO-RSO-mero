@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -207,13 +208,13 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         hqPositionId:        _regType == _RegType.hqStaff ? _selectedHQPosition?.id : null,
       );
 
-      // Сохраняем аватар локально и загружаем на сервер
+      // Сохраняем аватар локально и загружаем на сервер (для QR-сканирования)
       final user = auth.user;
       if (_avatarFile != null && user != null) {
+        final bytes = await _avatarFile!.readAsBytes();
         await AvatarService().saveFromFile(user.id, _avatarFile!);
-        // Загружаем на сервер — чтобы аватар был виден при сканировании QR
         try {
-          final bytes = await _avatarFile!.readAsBytes();
+          final b64 = base64Encode(bytes);
           await widget.api.uploadAvatar(bytes);
         } catch (_) {}
       }
@@ -368,7 +369,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
               onChanged: _busy ? null : (p) => setState(() => _selectedHQPosition = p),
             ),
             const SizedBox(height: 12),
-            // Штабник тоже может состоять в линейном отряде
             const Text('Линейный отряд (необязательно)',
                 style: TextStyle(fontSize: 14)),
             const SizedBox(height: 6),
@@ -390,8 +390,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                       child: Text(u.name,
                           overflow: TextOverflow.ellipsis))).toList(),
                 ],
-                onChanged: _busy ? null
-                    : (u) => setState(() => _selectedUnit = u),
+                onChanged: _busy ? null : (u) => setState(() => _selectedUnit = u),
               ),
           ],
 

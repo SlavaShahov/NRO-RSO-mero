@@ -15,21 +15,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-type AttendanceInfo struct {
-	RegistrationID     int    `json:"registration_id"`
-	UserID             int    `json:"user_id"`
-	FullName           string `json:"full_name"`
-	AvatarBase64       string `json:"avatar_base64"`
-	UnitName           string `json:"unit_name"`
-	HqName             string `json:"hq_name"`
-	PositionName       string `json:"position_name"`
-	Phone              string `json:"phone"`
-	MemberCardNumber   string `json:"member_card_number"`
-	MemberCardLocation string `json:"member_card_location"`
-	EventTitle         string `json:"event_title"`
-	EventDate          string `json:"event_date"`
-}
-
 var (
 	ErrForbidden = errors.New("forbidden")
 	ErrInvalidQR = errors.New("invalid qr format")
@@ -205,7 +190,7 @@ func (s *Service) RegisterToEvent(ctx context.Context, userID int, event models.
 		var year, month, day int
 		if _, err := fmt.Sscanf(event.EventDate, "%d-%d-%d", &year, &month, &day); err == nil {
 			eventDate := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
-			// Последний день регистрации включительно (до 23:59:59)
+			// Последний день регистрации включительно — до конца дня (23:59:59)
 			lastDay  := subtractWorkdays(eventDate, 3)
 			deadline := time.Date(lastDay.Year(), lastDay.Month(), lastDay.Day(),
 				23, 59, 59, 0, time.UTC)
@@ -221,48 +206,8 @@ func (s *Service) RegisterToEvent(ctx context.Context, userID int, event models.
 	return s.repo.CreateRegistration(ctx, userID, event.ID, pType)
 }
 
-func (s *Service) ScanAttendance(ctx context.Context, role string, scannerID int, qrCode string) (*AttendanceInfo, error) {
-	if !isManagerRole(role) {
-		return nil, ErrForbidden
-	}
-	
-	parsed, err := uuid.Parse(qrCode)
-	if err != nil {
-		return nil, ErrInvalidQR
-	}
-	
-	regID, err := s.repo.FindRegistrationByQR(ctx, parsed)
-	if err != nil {
-		return nil, err
-	}
-	
-	info, err := s.repo.GetRegistrationInfo(ctx, regID)
-	if err != nil {
-		return nil, err
-	}
-	if info == nil {
-		return nil, errors.New("registration info not found")
-	}
-	
-	if err := s.repo.MarkAttendance(ctx, regID, scannerID); err != nil {
-		return nil, err
-	}
-	
-	return &AttendanceInfo{
-		RegistrationID:     info.RegistrationID,
-		UserID:             info.UserID,
-		FullName:           info.FullName,
-		AvatarBase64:       info.AvatarBase64,
-		UnitName:           info.UnitName,
-		HqName:             info.HqName,
-		PositionName:       info.PositionName,
-		Phone:              info.Phone,
-		MemberCardNumber:   info.MemberCardNumber,
-		MemberCardLocation: info.MemberCardLocation,
-		EventTitle:         info.EventTitle,
-		EventDate:          info.EventDate,
-	}, nil
-}
+// ScanAttendance перенесён в service_patch.go — теперь возвращает *repo.RegistrationInfo
+// func (s *Service) ScanAttendance ...
 
 func (s *Service) Portfolio(ctx context.Context, userID int) (int, int, error) {
 	return s.repo.GetPortfolioStats(ctx, userID)
@@ -297,15 +242,6 @@ func (s *Service) NotifyAllParticipants(ctx context.Context, typeCode, title, bo
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-func isManagerRole(role string) bool {
-	switch role {
-	case "superadmin", "regional_admin", "local_admin",
-		"unit_commander", "unit_commissioner", "unit_master":
-		return true
-	}
-	return false
-}
 
 func subtractWorkdays(t time.Time, days int) time.Time {
 	result := t

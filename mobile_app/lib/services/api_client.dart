@@ -8,6 +8,8 @@ import 'package:http/http.dart' as http;
 import '../models/event.dart';
 import '../models/user.dart';
 import '../screens/notifications_screen.dart';
+import 'dart:convert';
+import 'dart:typed_data';
 
 class ApiException implements Exception {
   const ApiException(this.message, {this.statusCode});
@@ -228,24 +230,25 @@ class ApiClient {
         auth: true);
   }
 
-  // ── Проверка занятости должности в штабе ─────────────────────────────────
-  /// Возвращает {"available": true/false}
-  Future<Map<String, dynamic>> checkHQPosition(int hqId, int positionId) async =>
-      _get('/api/v1/hq_staff/check_position?hq_id=$hqId&position_id=$positionId',
-          auth: true);
+  // ── Аватар ────────────────────────────────────────────────────────────────  
 
-  // ── Аватар ────────────────────────────────────────────────────────────────
-  /// Загрузить аватар на сервер (bytes → base64 → БД)
+  // Загрузить аватар на сервер (bytes → base64 → POST /api/v1/me/avatar)
   Future<void> uploadAvatar(Uint8List bytes) async {
     final b64 = base64Encode(bytes);
     await _post('/api/v1/me/avatar', {'avatar_base64': b64}, auth: true);
   }
 
-  /// Получить свой аватар с сервера (base64)
+  // Получить свой аватар с сервера
   Future<String> getMyAvatar() async {
     final res = await _get('/api/v1/me/avatar', auth: true);
     return (res['avatar_base64'] ?? '') as String;
   }
+
+  // Проверить занята ли уникальная должность в штабе
+  // Возвращает {"available": true/false}
+  Future<Map<String, dynamic>> checkHQPosition(int hqId, int positionId) async =>
+      _get('/api/v1/hq_staff/check_position?hq_id=$hqId&position_id=$positionId',
+          auth: true);
 
   // ── Notifications ─────────────────────────────────────────────────────────
 

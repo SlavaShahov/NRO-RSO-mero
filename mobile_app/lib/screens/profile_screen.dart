@@ -49,7 +49,6 @@ class _ProfileScreenState extends State<ProfileScreen>
     final user = context.read<AuthProvider>().user;
     if (user == null) return;
     if (_avatarUserId == user.id && _avatarBytes != null) return;
-    // Сначала локальный кэш, потом сервер
     var bytes = await AvatarService().getBytes(user.id);
     if (bytes == null) {
       try {
@@ -140,8 +139,10 @@ class _ProfileScreenState extends State<ProfileScreen>
     final bytes = await picked.readAsBytes();
     await AvatarService().saveFromFile(user.id, File(picked.path));
     if (mounted) setState(() { _avatarBytes = bytes; _avatarUserId = user.id; });
-    // Загружаем на сервер — чтобы было видно при сканировании QR
-    try { await widget.api.uploadAvatar(bytes); } catch (_) {}
+    try {
+      final b64 = base64Encode(bytes);
+      await widget.api.uploadAvatar(bytes);
+    } catch (_) {}
   }
 
   Future<void> _logout() async {
@@ -252,10 +253,10 @@ class _ProfileScreenState extends State<ProfileScreen>
                             ? MemoryImage(_avatarBytes!) : null,
                         child: _avatarBytes == null
                             ? Text(
-                            user.firstName.isNotEmpty
-                                ? user.firstName[0].toUpperCase() : '?',
-                            style: const TextStyle(fontSize: 38,
-                                color: Colors.white, fontWeight: FontWeight.bold))
+                                user.firstName.isNotEmpty
+                                    ? user.firstName[0].toUpperCase() : '?',
+                                style: const TextStyle(fontSize: 38,
+                                    color: Colors.white, fontWeight: FontWeight.bold))
                             : null,
                       ),
                       Positioned(right: -2, bottom: -2,
@@ -279,10 +280,10 @@ class _ProfileScreenState extends State<ProfileScreen>
                         color: Colors.white.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(20)),
                     child: Text(
-                        user.unitName.isNotEmpty
-                            ? '${user.unitName}, ${user.positionName}'
-                            : user.positionName.isNotEmpty ? user.positionName : 'Боец',
-                        style: const TextStyle(color: Colors.white, fontSize: 12)),
+                      user.unitName.isNotEmpty
+                          ? '${user.unitName}, ${user.positionName}'
+                          : user.positionName.isNotEmpty ? user.positionName : 'Боец',
+                      style: const TextStyle(color: Colors.white, fontSize: 12)),
                   ),
                   const SizedBox(height: 16),
                 ]),
@@ -452,7 +453,7 @@ class _StatCard extends StatelessWidget {
 
 class _RegList extends StatelessWidget {
   const _RegList({required this.regs, required this.loading,
-    required this.emptyText, required this.onQR});
+      required this.emptyText, required this.onQR});
   final List<MyRegistration> regs; final bool loading;
   final String emptyText; final void Function(MyRegistration) onQR;
   @override
@@ -488,13 +489,13 @@ class _TicketCard extends StatelessWidget {
           Text(reg.location, style: const TextStyle(color: Colors.black54, fontSize: 13)),
         if (reg.isAttended)
           Padding(padding: const EdgeInsets.only(top: 6),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(color: Colors.green.shade50,
-                    borderRadius: BorderRadius.circular(6)),
-                child: Text('Посетил', style: TextStyle(color: Colors.green.shade700,
-                    fontSize: 12, fontWeight: FontWeight.w600)),
-              )),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(6)),
+              child: Text('Посетил', style: TextStyle(color: Colors.green.shade700,
+                  fontSize: 12, fontWeight: FontWeight.w600)),
+            )),
       ])),
       const SizedBox(width: 12),
       InkWell(onTap: onQR, borderRadius: BorderRadius.circular(8),
@@ -505,8 +506,8 @@ class _TicketCard extends StatelessWidget {
                 border: Border.all(color: Colors.black12)),
             child: reg.qrCode.isNotEmpty
                 ? ClipRRect(borderRadius: BorderRadius.circular(7),
-                child: QrImageView(data: reg.qrCode, size: 72,
-                    backgroundColor: Colors.white))
+                    child: QrImageView(data: reg.qrCode, size: 72,
+                        backgroundColor: Colors.white))
                 : const Icon(Icons.qr_code, color: Colors.black26, size: 32),
           ),
           const SizedBox(height: 4),
@@ -621,10 +622,10 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
             child: Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 13))),
       SizedBox(width: double.infinity,
         child: ElevatedButton(onPressed: _busy ? null : _save,
-            child: _busy
-                ? const SizedBox(height: 20, width: 20,
-                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Text('Сохранить')),
+          child: _busy
+              ? const SizedBox(height: 20, width: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              : const Text('Сохранить')),
       ),
     ]),
   );
@@ -649,9 +650,9 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
       TextCapitalization cap, {TextInputType? type}) => Padding(
     padding: const EdgeInsets.only(bottom: 10),
     child: TextField(controller: ctrl, textCapitalization: cap, keyboardType: type,
-        decoration: InputDecoration(labelText: label,
-            border: const OutlineInputBorder(
-                borderRadius: BorderRadius.all(Radius.circular(10))),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12))),
+      decoration: InputDecoration(labelText: label,
+        border: const OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(10))),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12))),
   );
 }

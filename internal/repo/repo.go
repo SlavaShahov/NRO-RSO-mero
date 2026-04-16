@@ -28,19 +28,9 @@ func (r *Repository) CreateUser(ctx context.Context, u models.User) (int, error)
 		RETURNING id
 	`, u.Email, u.PasswordHash, u.LastName, u.FirstName, u.MiddleName,
 		u.Phone, u.MemberCardNumber, u.UnitID, u.UnitPositionID).Scan(&id)
-	if err != nil {
-		// Проверяем нарушение уникальности должности
-		if strings.Contains(err.Error(), "users_unique_commander") {
-			return 0, ErrPositionTaken
-		}
-	}
 	return id, err
 }
 
-// ErrPositionTaken — должность уже занята в этом отряде/штабе
-var ErrPositionTaken = fmt.Errorf("position already taken")
-
-// userSelect — читает пользователя с учётом ШСО-заявки
 const userSelect = `
 	SELECT u.id, u.email, u.password_hash,
 	       u.last_name, u.first_name, COALESCE(u.middle_name,''),
@@ -50,18 +40,9 @@ const userSelect = `
 	       COALESCE(u.account_status,'active'),
 	       u.unit_id, u.unit_position_id,
 	       COALESCE(un.name,''),
-	       CASE
-	           WHEN hs.status = 'approved' THEN COALESCE(lh_hs.name,'')
-	           ELSE COALESCE(lh_u.name,'')
-	       END AS hq_name,
-	       CASE
-	           WHEN hs.status = 'approved' THEN COALESCE(hp.name,'')
-	           ELSE COALESCE(up.name,'')
-	       END AS position_name,
-	       CASE
-	           WHEN hs.status = 'approved' THEN 'hq_staff'
-	           ELSE COALESCE(sr.code,'participant')
-	       END AS role_code
+	       CASE WHEN hs.status='approved' THEN COALESCE(lh_hs.name,'') ELSE COALESCE(lh_u.name,'') END,
+	       CASE WHEN hs.status='approved' THEN COALESCE(hp.name,'') ELSE COALESCE(up.name,'') END,
+	       CASE WHEN hs.status='approved' THEN 'hq_staff' ELSE COALESCE(sr.code,'participant') END
 	FROM users u
 	LEFT JOIN units              un    ON un.id    = u.unit_id
 	LEFT JOIN local_headquarters lh_u  ON lh_u.id = un.local_headquarters_id
@@ -102,7 +83,9 @@ func (r *Repository) UpdateLastLogin(ctx context.Context, id int) error {
 func (r *Repository) UpdateProfile(ctx context.Context, userID int,
 	lastName, firstName, middleName, phone, memberCardNumber, memberCardLocation string) error {
 	loc := memberCardLocation
-	if loc != "with_user" && loc != "in_hq" { loc = "with_user" }
+	if loc != "with_user" && loc != "in_hq" {
+		loc = "with_user"
+	}
 	_, err := r.db.Exec(ctx, `
 		UPDATE users SET
 		    last_name            = $2,
@@ -117,9 +100,10 @@ func (r *Repository) UpdateProfile(ctx context.Context, userID int,
 	return err
 }
 
+// ListUnitMembers — список бойцов одного отряда
 func (r *Repository) ListUnitMembers(ctx context.Context, unitID int) ([]models.User, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT u.id, u.email, '',
+		SELECT u.id, u.email, '' as ph,
 		       u.last_name, u.first_name, COALESCE(u.middle_name,''),
 		       COALESCE(u.phone,''),
 		       COALESCE(u.member_card_number,''),
@@ -144,6 +128,36 @@ func (r *Repository) ListUnitMembers(ctx context.Context, unitID int) ([]models.
 	return scanUsers(rows)
 }
 
+// ListUnitsByHQFull — все отряды штаба с числом участников
+func (r *Repository) ListUnitsByHQFull(ctx context.Context, hqID int) ([]models.Unit, error) {
+	return r.ListUnitsByHQ(ctx, hqID)
+}
+
+// ListAllMembersByHQ — все участники всех отрядов штаба
+func (r *Repository) ListAllMembersByHQ(ctx context.Context, hqID int) ([]models.User, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT u.id, u.email, '',
+		       u.last_name, u.first_name, COALESCE(u.middle_name,''),
+		       COALESCE(u.phone,''),
+		       COALESCE(u.member_card_number,''),
+		       COALESCE(u.member_card_location,'with_user'),
+		       COALESCE(u.account_status,'active'),
+		       u.unit_id, u.unit_position_id,
+		       COALESCE(un.name,''), COALESCE(lh.name,''), COALESCE(up.name,''),
+		       COALESCE(sr.code,'participant')
+		FROM users u
+		JOIN units              un ON un.id = u.unit_id
+		JOIN local_headquarters lh ON lh.id = un.local_headquarters_id
+		LEFT JOIN unit_positions     up ON up.id = u.unit_position_id
+		LEFT JOIN system_roles       sr ON sr.id = up.system_role_id
+		WHERE un.local_headquarters_id=$1 AND u.is_blocked=false
+		ORDER BY un.name, up.code, u.last_name, u.first_name
+	`, hqID)
+	if err != nil { return nil, err }
+	defer rows.Close()
+	return scanUsers(rows)
+}
+
 func scanUsers(rows pgx.Rows) ([]models.User, error) {
 	var result []models.User
 	for rows.Next() {
@@ -159,58 +173,6 @@ func scanUsers(rows pgx.Rows) ([]models.User, error) {
 		result = append(result, u)
 	}
 	return result, nil
-}
-
-// RegistrationInfo — данные участника для показа после сканирования QR
-type RegistrationInfo struct {
-	RegistrationID     int    `json:"registration_id"`
-	UserID             int    `json:"user_id"`
-	FullName           string `json:"full_name"`
-	AvatarBase64       string `json:"avatar_base64"`
-	UnitName           string `json:"unit_name"`
-	HqName             string `json:"hq_name"`
-	PositionName       string `json:"position_name"`
-	Phone              string `json:"phone"`
-	MemberCardNumber   string `json:"member_card_number"`
-	MemberCardLocation string `json:"member_card_location"`
-	EventTitle         string `json:"event_title"`
-	EventDate          string `json:"event_date"`
-}
-
-// GetRegistrationInfo — полные данные о регистрации для отображения при сканировании
-func (r *Repository) GetRegistrationInfo(ctx context.Context, registrationID int) (*RegistrationInfo, error) {
-	var info RegistrationInfo
-	err := r.db.QueryRow(ctx, `
-		SELECT
-		    reg.id,
-		    u.id,
-		    u.last_name||' '||u.first_name||COALESCE(' '||NULLIF(u.middle_name,''),''),
-		    COALESCE(un.name,''),
-		    CASE WHEN hs.status='approved' THEN COALESCE(lh_hs.name,'') ELSE COALESCE(lh_u.name,'') END,
-		    CASE WHEN hs.status='approved' THEN COALESCE(hp.name,'') ELSE COALESCE(up.name,'') END,
-		    COALESCE(u.phone,''),
-		    COALESCE(u.member_card_number,''),
-		    COALESCE(u.member_card_location,'with_user'),
-		    e.title,
-		    e.event_date::text
-		FROM registrations reg
-		JOIN users u ON u.id = reg.user_id
-		JOIN events e ON e.id = reg.event_id
-		LEFT JOIN units              un    ON un.id    = u.unit_id
-		LEFT JOIN local_headquarters lh_u  ON lh_u.id = un.local_headquarters_id
-		LEFT JOIN unit_positions     up    ON up.id    = u.unit_position_id
-		LEFT JOIN hq_staff           hs    ON hs.user_id = u.id AND hs.status='approved'
-		LEFT JOIN local_headquarters lh_hs ON lh_hs.id = hs.local_headquarters_id
-		LEFT JOIN hq_positions       hp    ON hp.id    = hs.hq_position_id
-		WHERE reg.id = $1
-	`, registrationID).Scan(
-		&info.RegistrationID, &info.UserID, &info.FullName,
-		&info.UnitName, &info.HqName, &info.PositionName,
-		&info.Phone, &info.MemberCardNumber, &info.MemberCardLocation,
-		&info.EventTitle, &info.EventDate)
-	if IsNotFound(err) { return nil, nil }
-	if err != nil { return nil, err }
-	return &info, nil
 }
 
 // ── HQ Staff ─────────────────────────────────────────────────────────────────
@@ -264,6 +226,7 @@ func (r *Repository) CreateHQStaffRequest(ctx context.Context, userID, hqID, pos
 	return id, err
 }
 
+// ListPendingHQRequests — для администраторов штаба
 func (r *Repository) ListPendingHQRequests(ctx context.Context, hqID int) ([]models.HQStaffRequest, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT hs.id, hs.user_id,
@@ -307,8 +270,8 @@ func (r *Repository) ReviewHQStaffRequest(ctx context.Context,
 		WHERE id = $1
 	`, requestID, status, reviewerID, comment)
 	if err != nil {
-		if strings.Contains(err.Error(), "hq_staff_unique_commander") {
-			return fmt.Errorf("эта должность уже занята в данном штабе")
+		if strings.Contains(err.Error(), "hq_staff_unique_hq_commander") {
+			return ErrHQPositionTaken
 		}
 		return err
 	}
@@ -379,6 +342,7 @@ func (r *Repository) ListPositions(ctx context.Context) ([]models.Position, erro
 
 func (r *Repository) ListEvents(ctx context.Context, userID int,
 	level, eventType, search string) ([]models.Event, error) {
+
 	safeSearch := strings.NewReplacer(`%`, `\%`, `_`, `\_`).Replace(search)
 	rows, err := r.db.Query(ctx, `
 		SELECT e.id, e.title,
@@ -389,7 +353,8 @@ func (r *Repository) ListEvents(ctx context.Context, userID int,
 		       el.code, et.code, es.code,
 		       COALESCE(e.participation_mode,'open'),
 		       COALESCE(e.is_registration_required, true),
-		       e.max_participants, e.max_spectators,
+		       e.max_participants,
+		       e.max_spectators,
 		       e.created_at,
 		       (SELECT COUNT(*) FROM registrations rg2
 		        JOIN registration_statuses rs2 ON rs2.id=rg2.status_id
@@ -406,7 +371,8 @@ func (r *Repository) ListEvents(ctx context.Context, userID int,
 		       ) ELSE NULL END,
 		       CASE WHEN $1>0 THEN (
 		           SELECT COALESCE(rg.participation_type,'participant')
-		           FROM registrations rg WHERE rg.event_id=e.id AND rg.user_id=$1 LIMIT 1
+		           FROM registrations rg
+		           WHERE rg.event_id=e.id AND rg.user_id=$1 LIMIT 1
 		       ) ELSE NULL END
 		FROM events e
 		JOIN event_levels   el ON el.id=e.level_id
@@ -459,11 +425,13 @@ func (r *Repository) CreateEvent(ctx context.Context, e models.Event, createdBy 
 	return id, err
 }
 
+// SetEventUnitQuota — установить квоту отряда на мероприятие
 func (r *Repository) SetEventUnitQuota(ctx context.Context, q models.EventUnitQuota) error {
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO event_unit_quotas (event_id, unit_id, max_participants, max_spectators)
 		VALUES ($1,$2,$3,$4)
-		ON CONFLICT (event_id, unit_id) DO UPDATE SET max_participants=$3, max_spectators=$4
+		ON CONFLICT (event_id, unit_id)
+		DO UPDATE SET max_participants=$3, max_spectators=$4
 	`, q.EventID, q.UnitID, q.MaxParticipants, q.MaxSpectators)
 	return err
 }
@@ -588,34 +556,94 @@ func (r *Repository) CleanupExpiredRevokedTokens(ctx context.Context) error {
 	return err
 }
 
-var ErrAlreadyAttended = fmt.Errorf("attendance already marked")
 
-func IsNotFound(err error) bool { return err == pgx.ErrNoRows }
+// RegistrationInfo — данные участника для отображения при сканировании QR
+type RegistrationInfo struct {
+	RegistrationID     int    `json:"registration_id"`
+	UserID             int    `json:"user_id"`
+	FullName           string `json:"full_name"`
+	AvatarBase64       string `json:"avatar_base64,omitempty"`
+	UnitName           string `json:"unit_name"`
+	HqName             string `json:"hq_name"`
+	PositionName       string `json:"position_name"`
+	Phone              string `json:"phone"`
+	MemberCardNumber   string `json:"member_card_number"`
+	MemberCardLocation string `json:"member_card_location"`
+	EventTitle         string `json:"event_title"`
+	EventDate          string `json:"event_date"`
+}
 
-// SaveAvatar — сохраняет base64 аватар
+// GetRegistrationInfo — данные участника + его фото для экрана сканирования
+func (r *Repository) GetRegistrationInfo(ctx context.Context, registrationID int) (*RegistrationInfo, error) {
+	var info RegistrationInfo
+	err := r.db.QueryRow(ctx, `
+		SELECT
+		    reg.id,
+		    u.id,
+		    u.last_name||' '||u.first_name||COALESCE(' '||NULLIF(u.middle_name,''),''),
+		    COALESCE(u.avatar_url,''),
+		    COALESCE(un.name,''),
+		    CASE WHEN hs.status='approved' THEN COALESCE(lh_hs.name,'') ELSE COALESCE(lh_u.name,'') END,
+		    CASE WHEN hs.status='approved' THEN COALESCE(hp.name,'') ELSE COALESCE(up.name,'') END,
+		    COALESCE(u.phone,''),
+		    COALESCE(u.member_card_number,''),
+		    COALESCE(u.member_card_location,'with_user'),
+		    e.title,
+		    e.event_date::text
+		FROM registrations reg
+		JOIN users u ON u.id = reg.user_id
+		JOIN events e ON e.id = reg.event_id
+		LEFT JOIN units              un    ON un.id    = u.unit_id
+		LEFT JOIN local_headquarters lh_u  ON lh_u.id = un.local_headquarters_id
+		LEFT JOIN unit_positions     up    ON up.id    = u.unit_position_id
+		LEFT JOIN hq_staff           hs    ON hs.user_id = u.id AND hs.status='approved'
+		LEFT JOIN local_headquarters lh_hs ON lh_hs.id = hs.local_headquarters_id
+		LEFT JOIN hq_positions       hp    ON hp.id    = hs.hq_position_id
+		WHERE reg.id = $1
+	`, registrationID).Scan(
+		&info.RegistrationID, &info.UserID, &info.FullName,
+		&info.AvatarBase64,
+		&info.UnitName, &info.HqName, &info.PositionName,
+		&info.Phone, &info.MemberCardNumber, &info.MemberCardLocation,
+		&info.EventTitle, &info.EventDate)
+	if IsNotFound(err) { return nil, nil }
+	if err != nil { return nil, err }
+	return &info, nil
+}
+
+// SaveAvatar — сохранить base64 аватара в users.avatar_url
 func (r *Repository) SaveAvatar(ctx context.Context, userID int, base64Data string) error {
-	_, err := r.db.Exec(ctx, `UPDATE users SET avatar_url = $2 WHERE id = $1`, userID, base64Data)
+	_, err := r.db.Exec(ctx,
+		`UPDATE users SET avatar_url=$2, updated_at=NOW() WHERE id=$1`,
+		userID, base64Data)
 	return err
 }
 
-// GetAvatar — возвращает base64 аватара
+// GetAvatar — получить base64 аватара
 func (r *Repository) GetAvatar(ctx context.Context, userID int) (string, error) {
-	var avatar string
-	err := r.db.QueryRow(ctx, `SELECT COALESCE(avatar_url, '') FROM users WHERE id = $1`, userID).Scan(&avatar)
-	if err == pgx.ErrNoRows {
-		return "", nil
-	}
-	return avatar, err
+	var url string
+	err := r.db.QueryRow(ctx,
+		`SELECT COALESCE(avatar_url,'') FROM users WHERE id=$1`, userID).Scan(&url)
+	return url, err
 }
 
-// IsHQPositionAvailable — проверяет, свободна ли должность в штабе
+// IsHQPositionAvailable — свободна ли уникальная должность в штабе
 func (r *Repository) IsHQPositionAvailable(ctx context.Context, hqID, positionID int) (bool, error) {
-	var count int
-	err := r.db.QueryRow(ctx, `
-		SELECT COUNT(*) FROM hq_staff 
-		WHERE local_headquarters_id = $1 
-		  AND hq_position_id = $2 
-		  AND status = 'approved'
-	`, hqID, positionID).Scan(&count)
-	return count == 0, err
+	var isUnique bool
+	err := r.db.QueryRow(ctx,
+		`SELECT code IN ('commander','commissioner') FROM hq_positions WHERE id=$1`,
+		positionID).Scan(&isUnique)
+	if err != nil || !isUnique { return true, nil }
+	var cnt int
+	err = r.db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM hq_staff
+		WHERE local_headquarters_id=$1 AND hq_position_id=$2 AND status='approved'
+	`, hqID, positionID).Scan(&cnt)
+	return cnt == 0, err
 }
+
+var ErrAlreadyAttended = fmt.Errorf("attendance already marked")
+var ErrPositionTaken    = fmt.Errorf("position already taken")
+var ErrHQPositionTaken  = fmt.Errorf("hq position already taken")
+
+func IsNotFound(err error) bool { return err == pgx.ErrNoRows }
