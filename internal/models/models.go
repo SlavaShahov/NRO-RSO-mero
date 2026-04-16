@@ -19,6 +19,7 @@ type User struct {
 	HqName              string `json:"hq_name,omitempty"`
 	PositionName        string `json:"position_name,omitempty"`
 	RoleCode            string `json:"role_code"`
+	AvatarBase64        string `json:"avatar_base64,omitempty"`
 }
 
 type Event struct {

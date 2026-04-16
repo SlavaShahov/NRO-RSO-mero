@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -48,7 +49,17 @@ class _ProfileScreenState extends State<ProfileScreen>
     final user = context.read<AuthProvider>().user;
     if (user == null) return;
     if (_avatarUserId == user.id && _avatarBytes != null) return;
-    final bytes = await AvatarService().getBytes(user.id);
+    // Сначала локальный кэш, потом сервер
+    var bytes = await AvatarService().getBytes(user.id);
+    if (bytes == null) {
+      try {
+        final b64 = await widget.api.getMyAvatar();
+        if (b64.isNotEmpty) {
+          bytes = base64Decode(b64);
+          await AvatarService().saveBytes(user.id, bytes!);
+        }
+      } catch (_) {}
+    }
     if (mounted) setState(() { _avatarBytes = bytes; _avatarUserId = user.id; });
   }
 
@@ -129,6 +140,8 @@ class _ProfileScreenState extends State<ProfileScreen>
     final bytes = await picked.readAsBytes();
     await AvatarService().saveFromFile(user.id, File(picked.path));
     if (mounted) setState(() { _avatarBytes = bytes; _avatarUserId = user.id; });
+    // Загружаем на сервер — чтобы было видно при сканировании QR
+    try { await widget.api.uploadAvatar(bytes); } catch (_) {}
   }
 
   Future<void> _logout() async {

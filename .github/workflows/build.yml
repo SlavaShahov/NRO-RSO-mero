@@ -6,6 +6,10 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# ВАЖНО: эти права нужны для создания GitHub Release
+permissions:
+  contents: write
+
 jobs:
   # ── Android ────────────────────────────────────────────────────────────────
   android:
@@ -21,7 +25,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.27.4'   # 3.27+ поддерживает withOpacity нормально
+          flutter-version: '3.27.4'
           channel: 'stable'
 
       - name: Get dependencies
@@ -53,7 +57,7 @@ jobs:
 
   # ── iOS ────────────────────────────────────────────────────────────────────
   ios:
-    name: iOS IPA (без подписи)
+    name: iOS IPA
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -63,21 +67,26 @@ jobs:
           flutter-version: '3.27.4'
           channel: 'stable'
 
-      - name: Get dependencies
+      - name: Get Flutter dependencies
         working-directory: mobile_app
         run: flutter pub get
 
-      # Собираем под симулятор — не требует Developer Account
-      - name: Build iOS (simulator)
-        working-directory: mobile_app
-        run: flutter build ios --simulator --no-tree-shake-icons
+      # Явно устанавливаем Pods перед билдом — это фиксит "Framework not found"
+      - name: Install CocoaPods
+        working-directory: mobile_app/ios
+        run: |
+          pod repo update
+          pod install
 
-      # Пакуем в zip для AltStore/Sideloadly
-      - name: Package for AltStore
+      - name: Build iOS (no codesign)
+        working-directory: mobile_app
+        run: flutter build ios --release --no-codesign --no-tree-shake-icons
+
+      - name: Package IPA
         working-directory: mobile_app
         run: |
           mkdir -p build/ios/Payload
-          cp -r build/ios/iphonesimulator/Runner.app build/ios/Payload/
+          cp -r build/ios/iphoneos/Runner.app build/ios/Payload/
           cd build/ios && zip -r rso-events.ipa Payload/
 
       - name: Upload IPA artifact
@@ -93,6 +102,7 @@ jobs:
         with:
           files: mobile_app/build/ios/rso-events.ipa
           body: |
-            ## iOS — установка через AltStore/Sideloadly
+            ## iOS — установка через Sideloadly (бесплатно)
             1. Скачай `rso-events.ipa`
-            2. Установи через Sideloadly или AltStore (бесплатно)
+            2. Установи [Sideloadly](https://sideloadly.io)
+            3. Подключи iPhone, открой Sideloadly, перетащи IPA

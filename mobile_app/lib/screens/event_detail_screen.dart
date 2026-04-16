@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../models/event.dart';
-import '../models/user.dart';
 import '../providers/events_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_client.dart';

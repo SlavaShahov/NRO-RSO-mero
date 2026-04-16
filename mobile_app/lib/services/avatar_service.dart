@@ -5,8 +5,7 @@ import 'dart:typed_data';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Хранит аватарки пользователей локально на устройстве.
-/// Ключ: avatar_{userId}
-/// Значение: base64-строка JPEG/PNG
+/// Ключ: avatar_{userId}  |  Значение: base64-строка JPEG/PNG
 class AvatarService {
   static final AvatarService _instance = AvatarService._();
   factory AvatarService() => _instance;
@@ -14,9 +13,14 @@ class AvatarService {
 
   static const _prefix = 'avatar_';
 
-  /// Сохранить аватарку из файла
+  /// Сохранить из файла (при выборе фото в галерее/камере)
   Future<void> saveFromFile(int userId, File file) async {
     final bytes = await file.readAsBytes();
+    await saveBytes(userId, bytes);
+  }
+
+  /// Сохранить из байтов (при загрузке с сервера)
+  Future<void> saveBytes(int userId, Uint8List bytes) async {
     final b64 = base64Encode(bytes);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('$_prefix$userId', b64);
@@ -34,7 +38,7 @@ class AvatarService {
     }
   }
 
-  /// Удалить аватарку
+  /// Удалить аватарку локально
   Future<void> delete(int userId) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('$_prefix$userId');
