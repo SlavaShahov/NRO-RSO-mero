@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Me — профиль с правильной ролью (hq_staff если одобренная заявка)
 func (s *Service) Me(ctx context.Context, userID int) (models.User, error) {
 	u, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil { return u, err }
@@ -25,11 +24,10 @@ func (s *Service) Me(ctx context.Context, userID int) (models.User, error) {
 	return u, nil
 }
 
-// ReviewHQStaffRequest — одобрить/отклонить + уведомить
 func (s *Service) ReviewHQStaffRequest(ctx context.Context,
 	requestID, reviewerID int, approved bool, comment string) error {
 	if err := s.repo.ReviewHQStaffRequest(ctx, requestID, reviewerID, approved, comment); err != nil {
-		return err // ErrHQPositionTaken пробрасывается наверх в handlers
+		return err
 	}
 	reqs, _ := s.repo.GetHQStaffRequestByID(ctx, requestID)
 	if reqs != nil {
@@ -48,8 +46,7 @@ func (s *Service) ReviewHQStaffRequest(ctx context.Context,
 	return nil
 }
 
-// ScanAttendance — сканирует QR, отмечает посещение,
-// возвращает ПОЛНЫЕ данные участника включая фото (avatar_url из БД)
+// ScanAttendance — возвращает полные данные участника включая avatar_url из БД
 func (s *Service) ScanAttendance(ctx context.Context, role string, scannerID int, qrCode string) (*repo.RegistrationInfo, error) {
 	if !isManagerRole(role) { return nil, ErrForbidden }
 	parsed, err := uuid.Parse(qrCode)
@@ -57,27 +54,11 @@ func (s *Service) ScanAttendance(ctx context.Context, role string, scannerID int
 	regID, err := s.repo.FindRegistrationByQR(ctx, parsed)
 	if err != nil { return nil, err }
 	if err := s.repo.MarkAttendance(ctx, regID, scannerID); err != nil { return nil, err }
-	// Получаем данные участника — включая avatar_url из users.avatar_url
 	info, err := s.repo.GetRegistrationInfo(ctx, regID)
 	if err != nil || info == nil {
 		return &repo.RegistrationInfo{RegistrationID: regID}, nil
 	}
 	return info, nil
-}
-
-// SaveAvatar — сохранить base64 аватара в users.avatar_url
-func (s *Service) SaveAvatar(ctx context.Context, userID int, base64Data string) error {
-	return s.repo.SaveAvatar(ctx, userID, base64Data)
-}
-
-// GetAvatar — получить base64 аватара из users.avatar_url
-func (s *Service) GetAvatar(ctx context.Context, userID int) (string, error) {
-	return s.repo.GetAvatar(ctx, userID)
-}
-
-// IsHQPositionAvailable — проверить свободна ли уникальная должность
-func (s *Service) IsHQPositionAvailable(ctx context.Context, hqID, positionID int) (bool, error) {
-	return s.repo.IsHQPositionAvailable(ctx, hqID, positionID)
 }
 
 func isManagerRole(role string) bool {

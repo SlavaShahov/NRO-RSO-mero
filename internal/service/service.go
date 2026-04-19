@@ -190,10 +190,8 @@ func (s *Service) RegisterToEvent(ctx context.Context, userID int, event models.
 		var year, month, day int
 		if _, err := fmt.Sscanf(event.EventDate, "%d-%d-%d", &year, &month, &day); err == nil {
 			eventDate := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
-			// Последний день регистрации включительно — до конца дня (23:59:59)
 			lastDay  := subtractWorkdays(eventDate, 3)
-			deadline := time.Date(lastDay.Year(), lastDay.Month(), lastDay.Day(),
-				23, 59, 59, 0, time.UTC)
+			deadline := time.Date(lastDay.Year(), lastDay.Month(), lastDay.Day(), 23, 59, 59, 0, time.UTC)
 			if time.Now().UTC().After(deadline) {
 				return 0, uuid.UUID{}, ErrRegClosed
 			}
@@ -206,8 +204,23 @@ func (s *Service) RegisterToEvent(ctx context.Context, userID int, event models.
 	return s.repo.CreateRegistration(ctx, userID, event.ID, pType)
 }
 
-// ScanAttendance перенесён в service_patch.go — теперь возвращает *repo.RegistrationInfo
-// func (s *Service) ScanAttendance ...
+// ScanAttendance -> service_patch.go
+
+func (s *Service) GetEventParticipants(ctx context.Context, eventID int) ([]repo.EventParticipantRow, error) {
+	return s.repo.GetEventParticipants(ctx, eventID)
+}
+
+func (s *Service) SaveAvatar(ctx context.Context, userID int, base64Data string) error {
+	return s.repo.SaveAvatar(ctx, userID, base64Data)
+}
+
+func (s *Service) GetAvatar(ctx context.Context, userID int) (string, error) {
+	return s.repo.GetAvatar(ctx, userID)
+}
+
+func (s *Service) IsHQPositionAvailable(ctx context.Context, hqID, positionID int) (bool, error) {
+	return s.repo.IsHQPositionAvailable(ctx, hqID, positionID)
+}
 
 func (s *Service) Portfolio(ctx context.Context, userID int) (int, int, error) {
 	return s.repo.GetPortfolioStats(ctx, userID)

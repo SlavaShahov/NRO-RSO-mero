@@ -275,6 +275,7 @@ func (r *Repository) ReviewHQStaffRequest(ctx context.Context,
 		}
 		return err
 	}
+	// Обновляем account_status пользователя
 	_, err = tx.Exec(ctx, `
 		UPDATE users SET account_status = 'active'
 		WHERE id = (SELECT user_id FROM hq_staff WHERE id = $1)
@@ -557,7 +558,7 @@ func (r *Repository) CleanupExpiredRevokedTokens(ctx context.Context) error {
 }
 
 
-// RegistrationInfo — данные участника для отображения при сканировании QR
+// RegistrationInfo — данные участника для экрана сканирования
 type RegistrationInfo struct {
 	RegistrationID     int    `json:"registration_id"`
 	UserID             int    `json:"user_id"`
@@ -573,13 +574,10 @@ type RegistrationInfo struct {
 	EventDate          string `json:"event_date"`
 }
 
-// GetRegistrationInfo — данные участника + его фото для экрана сканирования
 func (r *Repository) GetRegistrationInfo(ctx context.Context, registrationID int) (*RegistrationInfo, error) {
 	var info RegistrationInfo
 	err := r.db.QueryRow(ctx, `
-		SELECT
-		    reg.id,
-		    u.id,
+		SELECT reg.id, u.id,
 		    u.last_name||' '||u.first_name||COALESCE(' '||NULLIF(u.middle_name,''),''),
 		    COALESCE(u.avatar_url,''),
 		    COALESCE(un.name,''),
@@ -588,18 +586,17 @@ func (r *Repository) GetRegistrationInfo(ctx context.Context, registrationID int
 		    COALESCE(u.phone,''),
 		    COALESCE(u.member_card_number,''),
 		    COALESCE(u.member_card_location,'with_user'),
-		    e.title,
-		    e.event_date::text
+		    e.title, e.event_date::text
 		FROM registrations reg
-		JOIN users u ON u.id = reg.user_id
-		JOIN events e ON e.id = reg.event_id
+		JOIN users u ON u.id=reg.user_id
+		JOIN events e ON e.id=reg.event_id
 		LEFT JOIN units              un    ON un.id    = u.unit_id
 		LEFT JOIN local_headquarters lh_u  ON lh_u.id = un.local_headquarters_id
 		LEFT JOIN unit_positions     up    ON up.id    = u.unit_position_id
-		LEFT JOIN hq_staff           hs    ON hs.user_id = u.id AND hs.status='approved'
-		LEFT JOIN local_headquarters lh_hs ON lh_hs.id = hs.local_headquarters_id
-		LEFT JOIN hq_positions       hp    ON hp.id    = hs.hq_position_id
-		WHERE reg.id = $1
+		LEFT JOIN hq_staff           hs    ON hs.user_id=u.id AND hs.status='approved'
+		LEFT JOIN local_headquarters lh_hs ON lh_hs.id=hs.local_headquarters_id
+		LEFT JOIN hq_positions       hp    ON hp.id   =hs.hq_position_id
+		WHERE reg.id=$1
 	`, registrationID).Scan(
 		&info.RegistrationID, &info.UserID, &info.FullName,
 		&info.AvatarBase64,
@@ -611,28 +608,21 @@ func (r *Repository) GetRegistrationInfo(ctx context.Context, registrationID int
 	return &info, nil
 }
 
-// SaveAvatar — сохранить base64 аватара в users.avatar_url
 func (r *Repository) SaveAvatar(ctx context.Context, userID int, base64Data string) error {
-	_, err := r.db.Exec(ctx,
-		`UPDATE users SET avatar_url=$2, updated_at=NOW() WHERE id=$1`,
-		userID, base64Data)
+	_, err := r.db.Exec(ctx, `UPDATE users SET avatar_url=$2, updated_at=NOW() WHERE id=$1`, userID, base64Data)
 	return err
 }
 
-// GetAvatar — получить base64 аватара
 func (r *Repository) GetAvatar(ctx context.Context, userID int) (string, error) {
 	var url string
-	err := r.db.QueryRow(ctx,
-		`SELECT COALESCE(avatar_url,'') FROM users WHERE id=$1`, userID).Scan(&url)
+	err := r.db.QueryRow(ctx, `SELECT COALESCE(avatar_url,'') FROM users WHERE id=$1`, userID).Scan(&url)
 	return url, err
 }
 
-// IsHQPositionAvailable — свободна ли уникальная должность в штабе
 func (r *Repository) IsHQPositionAvailable(ctx context.Context, hqID, positionID int) (bool, error) {
 	var isUnique bool
 	err := r.db.QueryRow(ctx,
-		`SELECT code IN ('commander','commissioner') FROM hq_positions WHERE id=$1`,
-		positionID).Scan(&isUnique)
+		`SELECT code IN ('commander','commissioner') FROM hq_positions WHERE id=$1`, positionID).Scan(&isUnique)
 	if err != nil || !isUnique { return true, nil }
 	var cnt int
 	err = r.db.QueryRow(ctx, `
@@ -642,8 +632,59 @@ func (r *Repository) IsHQPositionAvailable(ctx context.Context, hqID, positionID
 	return cnt == 0, err
 }
 
+// EventParticipantRow — строка для email-списка участников
+type EventParticipantRow struct {
+	EventTitle   string
+	CardNumber   string
+	LastName     string
+	FirstName    string
+	MiddleName   string
+	HqName       string
+	UnitName     string
+	PositionName string
+	PositionCode string // код для сортировки
+	Phone        string
+}
+
+func (r *Repository) GetEventParticipants(ctx context.Context, eventID int) ([]EventParticipantRow, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT
+		    e.title,
+		    COALESCE(u.member_card_number,''),
+		    u.last_name, u.first_name, COALESCE(u.middle_name,''),
+		    COALESCE(lh.name,''),
+		    COALESCE(un.name,''),
+		    CASE WHEN hs.status='approved' THEN COALESCE(hp.name,'') ELSE COALESCE(up.name,'') END,
+		    CASE WHEN hs.status='approved' THEN COALESCE(hp.code,'worker') ELSE COALESCE(up.code,'fighter') END,
+		    COALESCE(u.phone,'')
+		FROM registrations reg
+		JOIN users u ON u.id=reg.user_id
+		JOIN events e ON e.id=reg.event_id
+		JOIN registration_statuses rs ON rs.id=reg.status_id
+		LEFT JOIN units              un    ON un.id    = u.unit_id
+		LEFT JOIN local_headquarters lh    ON lh.id   = un.local_headquarters_id
+		LEFT JOIN unit_positions     up    ON up.id    = u.unit_position_id
+		LEFT JOIN hq_staff           hs    ON hs.user_id=u.id AND hs.status='approved'
+		LEFT JOIN hq_positions       hp    ON hp.id   =hs.hq_position_id
+		WHERE reg.event_id=$1 AND rs.code IN ('registered','attended')
+	`, eventID)
+	if err != nil { return nil, err }
+	defer rows.Close()
+	var result []EventParticipantRow
+	for rows.Next() {
+		var p EventParticipantRow
+		if err := rows.Scan(&p.EventTitle, &p.CardNumber,
+			&p.LastName, &p.FirstName, &p.MiddleName,
+			&p.HqName, &p.UnitName, &p.PositionName, &p.PositionCode, &p.Phone); err != nil {
+			return nil, err
+		}
+		result = append(result, p)
+	}
+	return result, nil
+}
+
 var ErrAlreadyAttended = fmt.Errorf("attendance already marked")
-var ErrPositionTaken    = fmt.Errorf("position already taken")
-var ErrHQPositionTaken  = fmt.Errorf("hq position already taken")
+var ErrPositionTaken   = fmt.Errorf("position already taken")
+var ErrHQPositionTaken = fmt.Errorf("hq position already taken")
 
 func IsNotFound(err error) bool { return err == pgx.ErrNoRows }

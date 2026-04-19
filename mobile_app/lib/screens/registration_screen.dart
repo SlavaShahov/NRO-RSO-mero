@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -155,9 +154,10 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   }
 
   String? _vPhone(String v) {
-    if (v.trim().isEmpty) return null;
-    final c = v.replaceAll(RegExp(r'[\s\-\(\)\+]'), '');
-    if (!RegExp(r'^[78]\d{10}$').hasMatch(c)) return 'Формат: 79001234567';
+    if (v.trim().isEmpty) return null; // телефон необязателен
+    final c = v.trim().replaceAll(RegExp(r'\D'), ''); // только цифры
+    if (!RegExp(r'^8\d{10}$').hasMatch(c))
+      return 'Формат: 89139391688 (11 цифр, начиная с 8)';
     return null;
   }
 
@@ -202,21 +202,16 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         memberCardNumber:    _cardLocation == 'with_user'
             ? _memberCard.text.trim() : '',
         memberCardLocation:  _cardLocation,
-        unitId:              _selectedUnit?.id,  // и бойцы и штабники могут быть в отряде
+        unitId:              _regType == _RegType.fighter ? _selectedUnit?.id : null,
         unitPositionId:      _regType == _RegType.fighter ? _selectedPosition?.id : null,
         hqId:                _selectedHQ?.id,
         hqPositionId:        _regType == _RegType.hqStaff ? _selectedHQPosition?.id : null,
       );
 
-      // Сохраняем аватар локально и загружаем на сервер (для QR-сканирования)
+      // Сохраняем аватар если выбран
       final user = auth.user;
       if (_avatarFile != null && user != null) {
-        final bytes = await _avatarFile!.readAsBytes();
         await AvatarService().saveFromFile(user.id, _avatarFile!);
-        try {
-          final b64 = base64Encode(bytes);
-          await widget.api.uploadAvatar(bytes);
-        } catch (_) {}
       }
 
       if (!mounted) return;
@@ -368,30 +363,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                   value: p, child: Text(p.name))).toList(),
               onChanged: _busy ? null : (p) => setState(() => _selectedHQPosition = p),
             ),
-            const SizedBox(height: 12),
-            const Text('Линейный отряд (необязательно)',
-                style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 6),
-            if (_loadingUnits)
-              const Center(child: CircularProgressIndicator())
-            else
-              _drop<UnitItem?>(
-                value: _selectedUnit,
-                hint: _selectedHQ == null
-                    ? 'Сначала выберите штаб'
-                    : 'Выберите отряд (необязательно)',
-                items: [
-                  const DropdownMenuItem<UnitItem?>(
-                      value: null,
-                      child: Text('— Не состою в отряде',
-                          style: TextStyle(color: Colors.black45))),
-                  ..._units.map((u) => DropdownMenuItem<UnitItem?>(
-                      value: u,
-                      child: Text(u.name,
-                          overflow: TextOverflow.ellipsis))).toList(),
-                ],
-                onChanged: _busy ? null : (u) => setState(() => _selectedUnit = u),
-              ),
           ],
 
           if (_error != null)
@@ -578,10 +549,12 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       TextField(
         controller: _phone,
         keyboardType: TextInputType.phone,
-        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d\s\-\+\(\)]'))],
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        maxLength: 11,
         decoration: const InputDecoration(
-          hintText: '+7 (___) ___-__-__ (необязательно)',
+          hintText: '8XXXXXXXXXX',
           prefixIcon: Icon(Icons.phone_outlined),
+          counterText: '',
           contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
           border: OutlineInputBorder(
               borderRadius: BorderRadius.all(Radius.circular(10))),

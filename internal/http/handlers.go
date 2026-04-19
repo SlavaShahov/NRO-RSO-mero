@@ -1,7 +1,10 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
+	"sort"
+	"strings"
 	"errors"
 	"net/http"
 	"strconv"
@@ -9,15 +12,20 @@ import (
 	"rso-events/internal/middleware"
 	"rso-events/internal/models"
 	"rso-events/internal/repo"
-	"context"
+	"rso-events/internal/config"
 	"rso-events/internal/service"
 
 	"github.com/go-chi/chi/v5"
 )
 
-type Handler struct{ svc *service.Service }
+type Handler struct{
+	svc *service.Service
+	cfg config.Config
+}
 
-func New(svc *service.Service) *Handler { return &Handler{svc: svc} }
+func New(svc *service.Service, cfg config.Config) *Handler {
+	return &Handler{svc: svc, cfg: cfg}
+}
 
 func (h *Handler) Register(r chi.Router) {
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -366,6 +374,7 @@ func (h *Handler) registerToEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 201, map[string]any{"registration_id": regID, "qr_code": qr.String()})
+	go h.sendParticipantsEmail(context.Background(), eid)
 }
 
 func (h *Handler) scanAttendance(w http.ResponseWriter, r *http.Request) {
@@ -562,7 +571,7 @@ func (h *Handler) uploadAvatar(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "avatar_base64 required"); return
 	}
 	if len(in.AvatarBase64) > 2*1024*1024 {
-		writeError(w, 400, "avatar too large (max ~1.5MB)"); return
+		writeError(w, 400, "avatar too large"); return
 	}
 	if err := h.svc.SaveAvatar(r.Context(), uid, in.AvatarBase64); err != nil {
 		writeError(w, 500, "save failed"); return
@@ -578,6 +587,8 @@ func (h *Handler) getAvatar(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"avatar_base64": avatar})
 }
 
+// ── HQ Position check ─────────────────────────────────────────────────────────
+
 func (h *Handler) hqStaffCheckPosition(w http.ResponseWriter, r *http.Request) {
 	hqID, err1 := strconv.Atoi(r.URL.Query().Get("hq_id"))
 	posID, err2 := strconv.Atoi(r.URL.Query().Get("position_id"))
@@ -587,6 +598,55 @@ func (h *Handler) hqStaffCheckPosition(w http.ResponseWriter, r *http.Request) {
 	avail, err := h.svc.IsHQPositionAvailable(r.Context(), hqID, posID)
 	if err != nil { writeError(w, 500, "check failed"); return }
 	writeJSON(w, 200, map[string]any{"available": avail})
+}
+
+// ── Email participants list ───────────────────────────────────────────────────
+
+func (h *Handler) sendParticipantsEmail(ctx context.Context, eventID int) {
+	if h.cfg.EmailTo == "" { return }
+	rows, err := h.svc.GetEventParticipants(ctx, eventID)
+	if err != nil || len(rows) == 0 { return }
+
+	var participants []EventParticipant
+	for i, r := range rows {
+		participants = append(participants, EventParticipant{
+			Num:          i + 1,
+			EventTitle:   r.EventTitle,
+			CardNumber:   r.CardNumber,
+			LastName:     r.LastName,
+			FirstName:    r.FirstName,
+			MiddleName:   r.MiddleName,
+			Institution:  r.HqName,
+			UnitName:     r.UnitName,
+			PositionName: r.PositionName,
+			PositionCode: r.PositionCode,
+			Phone:        r.Phone,
+		})
+	}
+
+	// Сортировка: ВУЗ → Отряд → Должность → Фамилия
+	sort.SliceStable(participants, func(i, j int) bool {
+		pi, pj := participants[i], participants[j]
+		// 1. По учебному заведению
+		if pi.Institution != pj.Institution { return pi.Institution < pj.Institution }
+		// 2. По отряду
+		if pi.UnitName != pj.UnitName { return pi.UnitName < pj.UnitName }
+		// 3. По должности
+		iHQ := strings.Contains(pi.PositionName, "штаба") || strings.Contains(pi.PositionName, "ШСО")
+		jHQ := strings.Contains(pj.PositionName, "штаба") || strings.Contains(pj.PositionName, "ШСО")
+		oi := positionSortOrder(pi.PositionName, iHQ)
+		oj := positionSortOrder(pj.PositionName, jHQ)
+		if oi != oj { return oi < oj }
+		// 4. По фамилии
+		return pi.LastName < pj.LastName
+	})
+
+	// Перенумеровываем после сортировки
+	for i := range participants { participants[i].Num = i + 1 }
+
+	eventTitle := ""
+	if len(participants) > 0 { eventTitle = participants[0].EventTitle }
+	SendParticipantList(h.cfg, eventTitle, participants)
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {
