@@ -1,5 +1,49 @@
+# Environment
 .env
+.env.local
+.env.*.local
+
+# Binaries
 *.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 /rso-api
+
+# Android signing
 mobile_app/android/key.properties
 mobile_app/keystore/
+mobile_app/android/keystore/
+*.jks
+*.keystore
+
+# Flutter/Dart
+.dart_tool/
+.pub-cache/
+.pub/
+/build/
+*.lock
+*.pid
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Docker
+*.pid
+
+# Go
+go.sum.bak
