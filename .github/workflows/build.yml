@@ -34,6 +34,14 @@ jobs:
         working-directory: mobile_app
         run: flutter pub get
 
+      # Декодируем keystore из base64 секрета
+      - name: Decode keystore
+        working-directory: mobile_app
+        run: |
+          mkdir -p android/keystore
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/keystore/rso-release.jks
+          ls -la android/keystore/
+
       # Создаём key.properties из GitHub Secrets
       - name: Create key.properties
         working-directory: mobile_app/android
@@ -42,15 +50,9 @@ jobs:
           storePassword=${{ secrets.KEYSTORE_PASSWORD }}
           keyPassword=${{ secrets.KEYSTORE_PASSWORD }}
           keyAlias=${{ secrets.KEY_ALIAS }}
-          storeFile=../keystore/rso-release.jks
+          storeFile=keystore/rso-release.jks
           EOF
-
-      # Декодируем keystore из base64 секрета
-      - name: Decode keystore
-        working-directory: mobile_app
-        run: |
-          mkdir -p keystore
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore/rso-release.jks
+          cat key.properties
 
       - name: Build APK (release)
         working-directory: mobile_app
