@@ -6,7 +6,6 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-// Читаем key.properties (создаётся в CI или вручную на машине разработчика)
 val keystorePropertiesFile = rootProject.file("key.properties")
 val keystoreProperties = Properties()
 if (keystorePropertiesFile.exists()) {
@@ -14,13 +13,15 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "ru.rso.nsk.events"        // ← applicationId
+    namespace = "ru.rso.nsk.events"
     compileSdk = 36
     ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        // ✅ Включаем Core Library Desugaring
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -35,7 +36,6 @@ android {
         versionName = flutter.versionName
     }
 
-    // Конфиг подписи релизного APK
     signingConfigs {
         create("release") {
             storeFile = if (keystorePropertiesFile.exists())
@@ -49,7 +49,6 @@ android {
 
     buildTypes {
         release {
-            // Используем release-подпись если есть key.properties, иначе debug
             signingConfig = if (keystorePropertiesFile.exists())
                 signingConfigs.getByName("release")
             else
@@ -62,4 +61,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // ✅ Добавляем библиотеку десахаринга
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
