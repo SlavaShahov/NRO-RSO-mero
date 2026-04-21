@@ -146,7 +146,7 @@ ON CONFLICT(code) DO NOTHING;
 
 INSERT INTO unit_positions(code,name,system_role_id) SELECT 'commander','Командир',id FROM system_roles WHERE code='unit_commander' ON CONFLICT(code) DO NOTHING;
 INSERT INTO unit_positions(code,name,system_role_id) SELECT 'commissioner','Комиссар',id FROM system_roles WHERE code='unit_commissioner' ON CONFLICT(code) DO NOTHING;
-INSERT INTO unit_positions(code,name,system_role_id) SELECT 'master','Мастер',id FROM system_roles WHERE code='unit_master' ON CONFLICT(code) DO NOTHING;
+INSERT INTO unit_positions(code,name,system_role_id) SELECT 'master','Инженер',id FROM system_roles WHERE code='unit_master' ON CONFLICT(code) DO NOTHING;
 INSERT INTO unit_positions(code,name,system_role_id) SELECT 'fighter','Боец',id FROM system_roles WHERE code='participant' ON CONFLICT(code) DO NOTHING;
 INSERT INTO unit_positions(code,name,system_role_id) SELECT 'candidate','Кандидат',id FROM system_roles WHERE code='candidate' ON CONFLICT(code) DO NOTHING;
 INSERT INTO unit_positions(code,name,system_role_id) SELECT 'superadmin','Супер администратор',id FROM system_roles WHERE code='superadmin' ON CONFLICT(code) DO NOTHING;
