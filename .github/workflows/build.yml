@@ -34,15 +34,15 @@ jobs:
         working-directory: mobile_app
         run: flutter pub get
 
-      # Декодируем keystore из base64 секрета
+      # Декодируем keystore в android/keystore/
       - name: Decode keystore
-        working-directory: mobile_app
+        working-directory: mobile_app/android
         run: |
-          mkdir -p android/keystore
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/keystore/rso-release.jks
-          ls -la android/keystore/
+          mkdir -p keystore
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore/rso-release.jks
+          ls -la keystore/
 
-      # Создаём key.properties из GitHub Secrets
+      # Создаём key.properties
       - name: Create key.properties
         working-directory: mobile_app/android
         run: |
