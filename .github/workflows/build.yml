@@ -13,28 +13,56 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # ─────────────────────── Android APK ───────────────────────────────────────
   android:
     name: Android APK
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
+
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.27.4'
-          channel: 'stable'
-      - run: flutter pub get
+          channel: stable
+
+      - name: Flutter dependencies
         working-directory: mobile_app
-      - run: flutter build apk --release --no-tree-shake-icons
+        run: flutter pub get
+
+      # Создаём key.properties из GitHub Secrets
+      - name: Create key.properties
+        working-directory: mobile_app/android
+        run: |
+          cat > key.properties << EOF
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          storeFile=../keystore/rso-release.jks
+          EOF
+
+      # Декодируем keystore из base64 секрета
+      - name: Decode keystore
         working-directory: mobile_app
-      - uses: actions/upload-artifact@v4
+        run: |
+          mkdir -p keystore
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore/rso-release.jks
+
+      - name: Build APK (release)
+        working-directory: mobile_app
+        run: flutter build apk --release --no-tree-shake-icons
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
         with:
           name: android-apk
           path: mobile_app/build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
+
       - name: GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -42,45 +70,91 @@ jobs:
           files: mobile_app/build/app/outputs/flutter-apk/app-release.apk
           name: "РСО Мероприятия ${{ github.ref_name }}"
           body: |
-            ## Android
+            ## Android — установка
             1. Скачай `app-release.apk`
             2. Открой на телефоне → разреши установку из неизвестных источников
+            3. Установи (старая версия обновится автоматически — тот же ключ подписи)
 
+  # ─────────────────────── iOS IPA ───────────────────────────────────────────
   ios:
     name: iOS IPA
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.27.4'
-          channel: 'stable'
-      - run: flutter pub get
+          channel: stable
+
+      - name: Flutter dependencies
         working-directory: mobile_app
+        run: flutter pub get
+
       - name: Pod install
         working-directory: mobile_app/ios
         run: pod install --repo-update
-      - name: Build iOS
+
+      - name: Build iOS (no codesign)
         working-directory: mobile_app
         run: flutter build ios --release --no-codesign --no-tree-shake-icons
+
       - name: Package IPA
         working-directory: mobile_app
         run: |
           mkdir -p build/ios/Payload
           cp -r build/ios/iphoneos/Runner.app build/ios/Payload/
           cd build/ios && zip -r rso-events.ipa Payload/
-      - uses: actions/upload-artifact@v4
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
         with:
           name: ios-ipa
           path: mobile_app/build/ios/rso-events.ipa
           retention-days: 30
+
       - name: GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: mobile_app/build/ios/rso-events.ipa
           body: |
-            ## iOS — Sideloadly (бесплатно)
-            1. Скачай rso-events.ipa
-            2. Установи Sideloadly (sideloadly.io)
-            3. Подключи iPhone, перетащи IPA
+            ## iOS — установка через Sideloadly (бесплатно)
+            1. Скачай `rso-events.ipa`
+            2. Установи [Sideloadly](https://sideloadly.io) на ПК
+            3. Подключи iPhone → перетащи IPA в Sideloadly
+
+  # ─────────────────────── Go Tests ──────────────────────────────────────────
+  test-go:
+    name: Go Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Run Go tests
+        run: go test ./... -v -cover
+        working-directory: .
+
+  # ─────────────────────── Flutter Tests ─────────────────────────────────────
+  test-flutter:
+    name: Flutter Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.27.4'
+          channel: stable
+
+      - name: Flutter dependencies
+        working-directory: mobile_app
+        run: flutter pub get
+
+      - name: Run Flutter tests
+        working-directory: mobile_app
+        run: flutter test --reporter expanded

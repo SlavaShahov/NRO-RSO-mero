@@ -1,3 +1,5 @@
 .env
 *.exe
 /rso-api
+mobile_app/android/key.properties
+mobile_app/keystore/

@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.rso_events_mobile"
+    namespace = "ru.rso.nsk.events"
     compileSdk = 36          // было 34 — меняем на 35
     ndkVersion = "27.0.12077973"  // добавить эту строку
     //compileSdk = flutter.compileSdkVersion
@@ -22,7 +22,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.rso_events_mobile"
+        applicationId = "ru.rso.nsk.events"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
