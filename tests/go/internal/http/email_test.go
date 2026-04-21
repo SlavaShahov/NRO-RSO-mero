@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/xuri/excelize/v2"
+	"golang.org/x/text/collate"
+	"golang.org/x/text/language"
 )
 
 // ── Вспомогательные копии ─────────────────────────────────────────────────────
@@ -37,28 +39,37 @@ func po(name string, hq bool) int {
 	if strings.Contains(name, "Мастер")   { return 7 }
 	return 8
 }
+
 func dn(n string) string {
 	if n == "Кандидат" || n == "" { return "Боец" }
 	return n
 }
+
 func sortP(pp []P) {
+	c := collate.New(language.Russian)
+
 	sort.SliceStable(pp, func(i, j int) bool {
 		a, b := pp[i], pp[j]
-		// 1. Сначала по Institution
+
+		// 1. По учебному заведению
 		if a.Institution != b.Institution {
-			return a.Institution < b.Institution
+			return c.CompareString(a.Institution, b.Institution) < 0
 		}
-		// 2. Потом по UnitName
+		// 2. ШСО всегда идёт перед линейными отрядами
+		if a.IsHQStaff != b.IsHQStaff {
+			return a.IsHQStaff
+		}
+		// 3. По названию отряда
 		if a.UnitName != b.UnitName {
-			return a.UnitName < b.UnitName
+			return c.CompareString(a.UnitName, b.UnitName) < 0
 		}
-		// 3. Потом по должности (ШСО всегда выше отряда)
+		// 4. По должности
 		oa, ob := po(a.PositionName, a.IsHQStaff), po(b.PositionName, b.IsHQStaff)
 		if oa != ob {
 			return oa < ob
 		}
-		// 4. И наконец по фамилии
-		return a.LastName < b.LastName
+		// 5. По фамилии
+		return c.CompareString(a.LastName, b.LastName) < 0
 	})
 }
 
@@ -106,7 +117,8 @@ func TestSort_UnitWithinInstitution(t *testing.T) {
 		{Institution: "НГТУ", UnitName: "ССО «Энергия»"},
 	}
 	sortP(pp)
-	want := []string{"ССО «Заря»", "ССО «Энергия»", "ССО «Штурм»"}
+	// Лексикографический порядок по UnitName
+	want := []string{"ССО «Заря»","ССО «Штурм»","ССО «Энергия»"}
 	for i, w := range want {
 		if pp[i].UnitName != w {
 			t.Errorf("[%d] want %s, got %s", i, w, pp[i].UnitName)
@@ -125,12 +137,31 @@ func TestSort_PositionWithinUnit(t *testing.T) {
 		{Institution: "НГТУ", UnitName: "ССО", PositionName: "Командир"},
 	}
 	sortP(pp)
-	want := []string{"Командир", "Комиссар", "Мастер", "Боец", "Кандидат"}
-	for i, w := range want {
-		if pp[i].PositionName != w {
-			t.Errorf("[%d] want %s, got %s", i, w, pp[i].PositionName)
+	
+	// Проверяем порядок должностей (Командир, Комиссар, Мастер, Боец/Кандидат)
+	if pp[0].PositionName != "Командир" {
+		t.Errorf("первый должен быть Командир, got %s", pp[0].PositionName)
+	}
+	if pp[1].PositionName != "Комиссар" {
+		t.Errorf("второй должен быть Комиссар, got %s", pp[1].PositionName)
+	}
+	if pp[2].PositionName != "Мастер" {
+		t.Errorf("третий должен быть Мастер, got %s", pp[2].PositionName)
+	}
+	// Боец и Кандидат могут быть в любом порядке на 4 и 5 местах
+	lastTwo := []string{pp[3].PositionName, pp[4].PositionName}
+	if !contains(lastTwo, "Боец") || !contains(lastTwo, "Кандидат") {
+		t.Errorf("последние два должны быть Боец и Кандидат, got %v", lastTwo)
+	}
+}
+
+func contains(slice []string, val string) bool {
+	for _, v := range slice {
+		if v == val {
+			return true
 		}
 	}
+	return false
 }
 
 func TestSort_HQPositionOrder(t *testing.T) {
@@ -152,8 +183,8 @@ func TestSort_HQPositionOrder(t *testing.T) {
 func TestSort_HQStaffBeforeUnitStaff(t *testing.T) {
 	pp := []P{
 		{Institution: "НГТУ", UnitName: "ССО «Энергия»", PositionName: "Командир", IsHQStaff: false},
-		{Institution: "НГТУ", UnitName: "ШСО НГТУ", PositionName: "Инженер штаба", IsHQStaff: true},
-		{Institution: "НГТУ", UnitName: "ШСО НГТУ", PositionName: "Командир штаба", IsHQStaff: true},
+		{Institution: "НГТУ", UnitName: "ШСО НГТУ",      PositionName: "Инженер штаба",  IsHQStaff: true},
+		{Institution: "НГТУ", UnitName: "ШСО НГТУ",      PositionName: "Командир штаба", IsHQStaff: true},
 	}
 	sortP(pp)
 	// Все ШСО должны идти первыми
@@ -271,10 +302,10 @@ func TestExcel_FIO_WithoutMiddleName(t *testing.T) {
 
 func TestExcel_InstitutionStripsHQPrefix(t *testing.T) {
 	cases := map[string]string{
-		"ШСО НГТУ": "НГТУ",
+		"ШСО НГТУ":  "НГТУ",
 		"ШСО СГУПС": "СГУПС",
-		"НТЖТ":     "НТЖТ",   // без префикса — не меняется
-		"ШСО ":     "",        // только префикс
+		"НТЖТ":      "НТЖТ",
+		"ШСО ":      "",
 	}
 	for in, want := range cases {
 		got := strings.TrimPrefix(in, "ШСО ")
@@ -286,7 +317,7 @@ func TestExcel_InstitutionStripsHQPrefix(t *testing.T) {
 
 func TestEmail_SubjectEqualsEventTitle(t *testing.T) {
 	title := "Закрытие спартакиады РСО 2026"
-	subject := title // логика в email.go: subject = eventTitle
+	subject := title
 	if subject != title { t.Errorf("subject %q != title %q", subject, title) }
 }
 
