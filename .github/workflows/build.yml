@@ -13,7 +13,6 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # ─────────────────────── Android APK ───────────────────────────────────────
   android:
     name: Android APK
     runs-on: ubuntu-latest
@@ -34,23 +33,23 @@ jobs:
         working-directory: mobile_app
         run: flutter pub get
 
-      # Декодируем keystore в android/keystore/
+      # Декодируем keystore в android/app/keystore/ (соответствует вашей структуре)
       - name: Decode keystore
-        working-directory: mobile_app/android
+        working-directory: mobile_app/android/app
         run: |
           mkdir -p keystore
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore/rso-release.jks
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore/release.jks
           ls -la keystore/
 
-      # Создаём key.properties
+      # Создаём key.properties в android/ (рядом с build.gradle.kts)
       - name: Create key.properties
         working-directory: mobile_app/android
         run: |
           cat > key.properties << EOF
+          storeFile=app/keystore/release.jks
           storePassword=${{ secrets.KEYSTORE_PASSWORD }}
-          keyPassword=${{ secrets.KEYSTORE_PASSWORD }}
           keyAlias=${{ secrets.KEY_ALIAS }}
-          storeFile=keystore/rso-release.jks
+          keyPassword=${{ secrets.KEY_PASSWORD }}
           EOF
           cat key.properties
 
@@ -71,13 +70,7 @@ jobs:
         with:
           files: mobile_app/build/app/outputs/flutter-apk/app-release.apk
           name: "РСО Мероприятия ${{ github.ref_name }}"
-          body: |
-            ## Android — установка
-            1. Скачай `app-release.apk`
-            2. Открой на телефоне → разреши установку из неизвестных источников
-            3. Установи (старая версия обновится автоматически — тот же ключ подписи)
 
-  # ─────────────────────── iOS IPA ───────────────────────────────────────────
   ios:
     name: iOS IPA
     runs-on: macos-latest
@@ -120,13 +113,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: mobile_app/build/ios/rso-events.ipa
-          body: |
-            ## iOS — установка через Sideloadly (бесплатно)
-            1. Скачай `rso-events.ipa`
-            2. Установи [Sideloadly](https://sideloadly.io) на ПК
-            3. Подключи iPhone → перетащи IPA в Sideloadly
 
-  # ─────────────────────── Go Tests ──────────────────────────────────────────
   test-go:
     name: Go Tests
     runs-on: ubuntu-latest
@@ -141,7 +128,6 @@ jobs:
         run: go test ./... -v
         working-directory: .
 
-  # ─────────────────────── Flutter Tests ─────────────────────────────────────
   test-flutter:
     name: Flutter Tests
     runs-on: ubuntu-latest

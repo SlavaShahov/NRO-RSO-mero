@@ -6,7 +6,8 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-val keystorePropertiesFile = rootProject.file("key.properties")
+// key.properties будет создан в android/ (рядом с build.gradle.kts)
+val keystorePropertiesFile = file("key.properties")
 val keystoreProperties = Properties()
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(keystorePropertiesFile.inputStream())
@@ -20,7 +21,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
-        // ✅ Включаем Core Library Desugaring
         isCoreLibraryDesugaringEnabled = true
     }
 
@@ -38,21 +38,22 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = if (keystorePropertiesFile.exists())
-                file(keystoreProperties["storeFile"] as String)
-            else null
-            storePassword = keystoreProperties["storePassword"] as? String ?: ""
-            keyAlias      = keystoreProperties["keyAlias"]      as? String ?: ""
-            keyPassword   = keystoreProperties["keyPassword"]   as? String ?: ""
+            if (keystorePropertiesFile.exists()) {
+                storeFile = file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+            }
         }
     }
 
     buildTypes {
         release {
-            signingConfig = if (keystorePropertiesFile.exists())
+            signingConfig = if (keystorePropertiesFile.exists()) {
                 signingConfigs.getByName("release")
-            else
+            } else {
                 signingConfigs.getByName("debug")
+            }
             isMinifyEnabled = false
             isShrinkResources = false
         }
@@ -64,6 +65,5 @@ flutter {
 }
 
 dependencies {
-    // ✅ Добавляем библиотеку десахаринга
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
