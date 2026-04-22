@@ -26,45 +26,45 @@ type EventParticipant struct {
 	UnitName     string
 	PositionName string // отображаемое название должности
 	PositionCode string // код для сортировки
+	IsHQStaff    bool   // признак штабного сотрудника
 	Phone        string
 }
 
 // positionSortOrder — порядок должностей согласно ТЗ:
 // Командир ШСО → Комиссар ШСО → Инженер ШСО → Работник ШСО →
 // Командир отряда → Комиссар отряда → Мастер/Инженер отряда → Боец
-//
-// Коды ШСО:    commander, commissioner, engineer, worker
-// Коды отряда: commander, commissioner, master, fighter, candidate
-//
-// Чтобы различить ШСО и отряд — смотрим PositionCode из таблицы:
-// hq_positions.code vs unit_positions.code
-// В GetEventParticipants запрос возвращает:
-//   ШСО-должность:    hp.code (commander/commissioner/engineer/worker)
-//   Отряд-должность:  up.code (commander/commissioner/master/fighter/candidate)
-// Они имеют пересекающиеся коды (commander/commissioner), поэтому сортируем
-// по PositionName — оно уникально (Командир штаба vs Командир)
 func positionSortOrder(posName string, isHQStaff bool) int {
 	if isHQStaff {
 		// Должности штаба — идут первыми
 		switch {
-		case strings.Contains(posName, "Командир"):    return 1
-		case strings.Contains(posName, "Комиссар"):    return 2
-		case strings.Contains(posName, "Инженер"):     return 3
-		default:                                        return 4 // Работник
+		case strings.Contains(posName, "Командир"):
+			return 1
+		case strings.Contains(posName, "Комиссар"):
+			return 2
+		case strings.Contains(posName, "Инженер"):
+			return 3
+		default:
+			return 4 // Работник
 		}
 	}
 	// Должности отряда
 	switch {
-	case strings.Contains(posName, "Командир"):  return 5
-	case strings.Contains(posName, "Комиссар"):  return 6
-	case strings.Contains(posName, "Мастер"):    return 7 // Инженер отряда по ТЗ
-	default:                                      return 8 // Боец / Кандидат
+	case strings.Contains(posName, "Командир"):
+		return 5
+	case strings.Contains(posName, "Комиссар"):
+		return 6
+	case strings.Contains(posName, "Мастер"):
+		return 7 // Инженер отряда по ТЗ
+	default:
+		return 8 // Боец / Кандидат
 	}
 }
 
 // positionDisplayName — «Кандидат» → «Боец» в списке
 func positionDisplayName(posName string) string {
-	if posName == "Кандидат" || posName == "" { return "Боец" }
+	if posName == "Кандидат" || posName == "" {
+		return "Боец"
+	}
 	return posName
 }
 
@@ -109,13 +109,15 @@ func buildExcel(eventTitle string, participants []EventParticipant) ([]byte, err
 			WrapText:   true,
 		},
 		Border: []excelize.Border{
-			{Type: "left",   Color: "000000", Style: 1},
-			{Type: "right",  Color: "000000", Style: 1},
-			{Type: "top",    Color: "000000", Style: 1},
+			{Type: "left", Color: "000000", Style: 1},
+			{Type: "right", Color: "000000", Style: 1},
+			{Type: "top", Color: "000000", Style: 1},
 			{Type: "bottom", Color: "000000", Style: 1},
 		},
 	})
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 
 	// Стиль шапки: жирный + синяя заливка
 	headerStyle, err := f.NewStyle(&excelize.Style{
@@ -131,13 +133,15 @@ func buildExcel(eventTitle string, participants []EventParticipant) ([]byte, err
 			Pattern: 1,
 		},
 		Border: []excelize.Border{
-			{Type: "left",   Color: "000000", Style: 2},
-			{Type: "right",  Color: "000000", Style: 2},
-			{Type: "top",    Color: "000000", Style: 2},
+			{Type: "left", Color: "000000", Style: 2},
+			{Type: "right", Color: "000000", Style: 2},
+			{Type: "top", Color: "000000", Style: 2},
 			{Type: "bottom", Color: "000000", Style: 2},
 		},
 	})
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 
 	// Стиль заголовка документа
 	titleStyle, _ := f.NewStyle(&excelize.Style{
@@ -213,7 +217,9 @@ func buildExcel(eventTitle string, participants []EventParticipant) ([]byte, err
 	})
 
 	var buf bytes.Buffer
-	if err := f.Write(&buf); err != nil { return nil, err }
+	if err := f.Write(&buf); err != nil {
+		return nil, err
+	}
 	return buf.Bytes(), nil
 }
 
@@ -228,7 +234,9 @@ func sendMailWithAttachment(cfg config.Config, subject string,
 	var b64Chunked strings.Builder
 	for i := 0; i < len(b64); i += 76 {
 		end := i + 76
-		if end > len(b64) { end = len(b64) }
+		if end > len(b64) {
+			end = len(b64)
+		}
 		b64Chunked.WriteString(b64[i:end] + "\r\n")
 	}
 
@@ -266,17 +274,33 @@ func sendMailWithAttachment(cfg config.Config, subject string,
 		// SSL/TLS (Яндекс, Mail.ru)
 		tlsConf := &tls.Config{ServerName: cfg.SMTPHost}
 		conn, err := tls.Dial("tcp", addr, tlsConf)
-		if err != nil { return fmt.Errorf("tls dial: %w", err) }
+		if err != nil {
+			return fmt.Errorf("tls dial: %w", err)
+		}
 		defer conn.Close()
 		c, err := smtp.NewClient(conn, cfg.SMTPHost)
-		if err != nil { return fmt.Errorf("smtp client: %w", err) }
-		if err = c.Auth(auth); err != nil { return fmt.Errorf("smtp auth: %w", err) }
-		if err = c.Mail(cfg.SMTPUser); err != nil { return err }
-		if err = c.Rcpt(cfg.EmailTo); err != nil { return err }
+		if err != nil {
+			return fmt.Errorf("smtp client: %w", err)
+		}
+		if err = c.Auth(auth); err != nil {
+			return fmt.Errorf("smtp auth: %w", err)
+		}
+		if err = c.Mail(cfg.SMTPUser); err != nil {
+			return err
+		}
+		if err = c.Rcpt(cfg.EmailTo); err != nil {
+			return err
+		}
 		w, err := c.Data()
-		if err != nil { return err }
-		if _, err = fmt.Fprint(w, msg); err != nil { return err }
-		if err = w.Close(); err != nil { return err }
+		if err != nil {
+			return err
+		}
+		if _, err = fmt.Fprint(w, msg); err != nil {
+			return err
+		}
+		if err = w.Close(); err != nil {
+			return err
+		}
 		return c.Quit()
 	}
 

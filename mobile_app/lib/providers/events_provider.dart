@@ -50,7 +50,7 @@ class EventsProvider extends ChangeNotifier {
       // на случай если сервер ещё не вернул обновлённый статус (гонка)
       final merged = fresh.map((e) {
         final existing = _events.firstWhere(
-          (old) => old.id == e.id,
+              (old) => old.id == e.id,
           orElse: () => e,
         );
         // Если в памяти статус «registered/attended» а с сервера null —
@@ -126,5 +126,7 @@ class EventsProvider extends ChangeNotifier {
     // Увеличиваем счётчик — ProfileScreen подхватит изменение
     _registrationCounter++;
     notifyListeners();
+    // Перезагружаем с сервера чтобы счётчик участников был актуальным
+    Future.delayed(const Duration(milliseconds: 500), loadEvents);
   }
 }

@@ -91,14 +91,11 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       }
     } on ApiException catch (e) {
       if (e.statusCode == 409) {
-        final isRegClosed = e.message.contains('закрыта') ||
-            e.message.contains('3 раб') ||
-            e.message.contains('менее');
-        if (isRegClosed) {
-          // Регистрация закрыта — НЕ помечаем как зарегистрирован
+        final isClosed = e.message.contains('закрыта') ||
+            e.message.contains('менее') || e.message.contains('3 раб');
+        if (isClosed) {
           setState(() => _error = e.message);
         } else {
-          // Уже зарегистрирован — подгружаем QR
           if (mounted) {
             context.read<EventsProvider>()
                 .updateEventRegistrationStatus(event.id, 'registered');
@@ -136,6 +133,24 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     }
   }
 
+  /// Закрыта ли регистрация (3 рабочих дня до мероприятия, до 23:59:59)
+  bool _isRegDeadlinePassed(EventItem event) {
+    try {
+      final parts = event.eventDate.split('-');
+      if (parts.length < 3) return false;
+      var d = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+      int sub = 0;
+      while (sub < 3) {
+        d = d.subtract(const Duration(days: 1));
+        if (d.weekday != DateTime.saturday && d.weekday != DateTime.sunday) sub++;
+      }
+      final deadline = DateTime(d.year, d.month, d.day, 23, 59, 59);
+      return DateTime.now().isAfter(deadline);
+    } catch (_) {
+      return false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final event = ModalRoute.of(context)?.settings.arguments;
@@ -162,9 +177,12 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     // 1. Ещё не зарегистрирован
     // 2. Требуется регистрация
     // 3. Мероприятие ещё не прошло
+    // 4. Дедлайн регистрации не прошёл
+    final isRegClosed = _isRegDeadlinePassed(event);
     final canRegister = !alreadyRegistered &&
         event.isRegistrationRequired &&
-        !isPast;
+        !isPast &&
+        !isRegClosed;
 
     return Scaffold(
       appBar: AppBar(
@@ -201,16 +219,32 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                   style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                   textAlign: TextAlign.center),
             )
-          else if (isPast)
+          else if (isRegClosed && !isPast)
             Container(
-              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              margin: const EdgeInsets.symmetric(vertical: 8),
               decoration: BoxDecoration(
-                  color: Colors.grey.shade400,
-                  borderRadius: BorderRadius.circular(30)),
-              child: const Text('Мероприятие завершено',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                  textAlign: TextAlign.center),
-            ),
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.orange.shade300)),
+              child: Row(children: [
+                Icon(Icons.lock_clock_outlined,
+                    color: Colors.orange.shade700, size: 18),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Регистрация закрыта — срок прошёл',
+                    style: TextStyle(color: Colors.orange.shade700, fontSize: 13))),
+              ]),
+            )
+          else if (isPast)
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                decoration: BoxDecoration(
+                    color: Colors.grey.shade400,
+                    borderRadius: BorderRadius.circular(30)),
+                child: const Text('Мероприятие завершено',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    textAlign: TextAlign.center),
+              ),
 
           const SizedBox(height: 16),
           Text(event.title,
@@ -297,38 +331,38 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                       style: TextStyle(color: Colors.black45, fontSize: 12)),
                 ])
               else if (alreadyRegistered)
-                Column(children: [
-                  const Icon(Icons.check_circle, size: 64, color: Colors.green),
-                  const SizedBox(height: 8),
-                  const Text('Вы зарегистрированы',
-                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
-                  const SizedBox(height: 4),
-                  TextButton.icon(
-                    icon: const Icon(Icons.qr_code),
-                    label: const Text('Показать QR-код'),
-                    onPressed: () => _loadExistingQr(event.id),
-                  ),
-                ])
-              else if (isPast)
-                // Мероприятие прошло, не зарегистрирован
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  child: Column(children: [
-                    Icon(Icons.event_busy, size: 48, color: Colors.black26),
-                    SizedBox(height: 8),
-                    Text('Регистрация закрыта',
-                        style: TextStyle(color: Colors.black45, fontSize: 14)),
-                  ]),
-                )
-              else
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  child: Text(
-                    'Зарегистрируйтесь чтобы получить QR-код',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.black54),
-                  ),
-                ),
+                  Column(children: [
+                    const Icon(Icons.check_circle, size: 64, color: Colors.green),
+                    const SizedBox(height: 8),
+                    const Text('Вы зарегистрированы',
+                        style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                    const SizedBox(height: 4),
+                    TextButton.icon(
+                      icon: const Icon(Icons.qr_code),
+                      label: const Text('Показать QR-код'),
+                      onPressed: () => _loadExistingQr(event.id),
+                    ),
+                  ])
+                else if (isPast)
+                  // Мероприятие прошло, не зарегистрирован
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: Column(children: [
+                        Icon(Icons.event_busy, size: 48, color: Colors.black26),
+                        SizedBox(height: 8),
+                        Text('Регистрация закрыта',
+                            style: TextStyle(color: Colors.black45, fontSize: 14)),
+                      ]),
+                    )
+                  else
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: Text(
+                        'Зарегистрируйтесь чтобы получить QR-код',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.black54),
+                      ),
+                    ),
 
               if (_error != null)
                 Padding(
@@ -354,8 +388,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                     onPressed: _busy ? null : () => _register(event),
                     child: _busy
                         ? const SizedBox(height: 20, width: 20,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white))
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
                         : const Text('Зарегистрироваться'),
                   ),
                 ),
@@ -368,13 +402,13 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   }
 
   Widget _info(IconData icon, String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 6, top: 4),
-        child: Row(children: [
-          Icon(icon, size: 18, color: Colors.black45),
-          const SizedBox(width: 10),
-          Expanded(child: Text(text, style: const TextStyle(fontSize: 14))),
-        ]),
-      );
+    padding: const EdgeInsets.only(bottom: 6, top: 4),
+    child: Row(children: [
+      Icon(icon, size: 18, color: Colors.black45),
+      const SizedBox(width: 10),
+      Expanded(child: Text(text, style: const TextStyle(fontSize: 14))),
+    ]),
+  );
 }
 
 class _Counter extends StatelessWidget {
@@ -399,7 +433,7 @@ class _Sep extends StatelessWidget {
   const _Sep();
   @override
   Widget build(BuildContext context) => const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 2),
-        child: Text(':', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-      );
+    padding: EdgeInsets.symmetric(horizontal: 2),
+    child: Text(':', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+  );
 }

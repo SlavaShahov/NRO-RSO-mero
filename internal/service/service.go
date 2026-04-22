@@ -190,8 +190,9 @@ func (s *Service) RegisterToEvent(ctx context.Context, userID int, event models.
 		var year, month, day int
 		if _, err := fmt.Sscanf(event.EventDate, "%d-%d-%d", &year, &month, &day); err == nil {
 			eventDate := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
-			lastDay  := subtractWorkdays(eventDate, 3)
-			deadline := time.Date(lastDay.Year(), lastDay.Month(), lastDay.Day(), 23, 59, 59, 0, time.UTC)
+			lastDay   := subtractWorkdays(eventDate, 3)
+			deadline  := time.Date(lastDay.Year(), lastDay.Month(), lastDay.Day(),
+				23, 59, 59, 0, time.UTC)
 			if time.Now().UTC().After(deadline) {
 				return 0, uuid.UUID{}, ErrRegClosed
 			}
@@ -210,16 +211,16 @@ func (s *Service) GetEventParticipants(ctx context.Context, eventID int) ([]repo
 	return s.repo.GetEventParticipants(ctx, eventID)
 }
 
-func (s *Service) SaveAvatar(ctx context.Context, userID int, base64Data string) error {
-	return s.repo.SaveAvatar(ctx, userID, base64Data)
+func (s *Service) SaveAvatar(ctx context.Context, userID int, b64 string) error {
+	return s.repo.SaveAvatar(ctx, userID, b64)
 }
 
 func (s *Service) GetAvatar(ctx context.Context, userID int) (string, error) {
 	return s.repo.GetAvatar(ctx, userID)
 }
 
-func (s *Service) IsHQPositionAvailable(ctx context.Context, hqID, positionID int) (bool, error) {
-	return s.repo.IsHQPositionAvailable(ctx, hqID, positionID)
+func (s *Service) IsHQPositionAvailable(ctx context.Context, hqID, posID int) (bool, error) {
+	return s.repo.IsHQPositionAvailable(ctx, hqID, posID)
 }
 
 func (s *Service) Portfolio(ctx context.Context, userID int) (int, int, error) {
