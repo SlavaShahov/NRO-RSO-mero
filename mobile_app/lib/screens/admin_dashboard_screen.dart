@@ -364,7 +364,7 @@ class _CreateEventSheetState extends State<_CreateEventSheet> {
 
           // Уровень
           DropdownButtonFormField<String>(
-            initialValue: _levelCode,        // ← исправлено: initialValue вместо value
+            value: _levelCode,        // ← исправлено: initialValue вместо value
             decoration: const InputDecoration(
                 labelText: 'Уровень',
                 border: OutlineInputBorder(
@@ -378,7 +378,7 @@ class _CreateEventSheetState extends State<_CreateEventSheet> {
 
           // Тип
           DropdownButtonFormField<String>(
-            initialValue: _typeCode,         // ← исправлено: initialValue вместо value
+            value: _typeCode,         // ← исправлено: initialValue вместо value
             decoration: const InputDecoration(
                 labelText: 'Тип',
                 border: OutlineInputBorder(
@@ -392,7 +392,7 @@ class _CreateEventSheetState extends State<_CreateEventSheet> {
 
           // Режим участия
           DropdownButtonFormField<String>(
-            initialValue: _participationMode,
+            value: _participationMode,
             decoration: const InputDecoration(
                 labelText: 'Режим участия',
                 border: OutlineInputBorder(
