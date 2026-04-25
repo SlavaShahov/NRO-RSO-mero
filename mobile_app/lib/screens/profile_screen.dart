@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -23,7 +22,6 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs;
-  bool _loadingPortfolio = false;
   Map<String, dynamic>? _portfolio;
   List<MyRegistration> _registrations = [];
   bool _loadingRegs = false;
@@ -49,21 +47,12 @@ class _ProfileScreenState extends State<ProfileScreen>
     final user = context.read<AuthProvider>().user;
     if (user == null) return;
     if (_avatarUserId == user.id && _avatarBytes != null) return;
-    var bytes = await AvatarService().getBytes(user.id);
-    if (bytes == null) {
-      try {
-        final b64 = await widget.api.getMyAvatar();
-        if (b64.isNotEmpty) {
-          bytes = base64Decode(b64);
-          await AvatarService().saveBytes(user.id, bytes!);
-        }
-      } catch (_) {}
-    }
+    final bytes = await AvatarService().getBytes(user.id);
     if (mounted) setState(() { _avatarBytes = bytes; _avatarUserId = user.id; });
   }
 
   Future<void> _loadData() async {
-    setState(() { _loadingPortfolio = true; _loadingRegs = true; });
+    setState(() { _loadingRegs = true; });
     try {
       final results = await Future.wait([
         widget.api.portfolio(),
@@ -75,7 +64,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       });
     } catch (_) {}
     finally {
-      if (mounted) setState(() { _loadingPortfolio = false; _loadingRegs = false; });
+      if (mounted) setState(() { _loadingRegs = false; });
     }
   }
 
@@ -139,7 +128,6 @@ class _ProfileScreenState extends State<ProfileScreen>
     final bytes = await picked.readAsBytes();
     await AvatarService().saveFromFile(user.id, File(picked.path));
     if (mounted) setState(() { _avatarBytes = bytes; _avatarUserId = user.id; });
-    try { await widget.api.uploadAvatar(bytes); } catch (_) {}
   }
 
   Future<void> _logout() async {
@@ -166,7 +154,6 @@ class _ProfileScreenState extends State<ProfileScreen>
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) => _EditProfileSheet(
         user: user,
-        api: widget.api,
         onSave: (last, first, mid, phone, cardNum, cardLoc) async {
           await context.read<AuthProvider>().updateProfile(
               lastName: last, firstName: first, middleName: mid, phone: phone,
@@ -212,8 +199,8 @@ class _ProfileScreenState extends State<ProfileScreen>
     if (user == null)
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
-    final upcoming     = _registrations.where((r) => r.isUpcoming).toList();
-    final attended      = _registrations.where((r) => r.isAttended).toList();
+    final upcoming     = _registrations.where((r) => r!.isUpcoming).toList();
+    final attended      = _registrations.where((r) => r!.isAttended).toList();
     final totalAttended = _portfolio?['attended'] as int? ?? attended.length;
     final totalUpcoming = _portfolio?['upcoming'] as int? ?? upcoming.length;
 
@@ -246,7 +233,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     child: Stack(clipBehavior: Clip.none, children: [
                       CircleAvatar(
                         radius: 48,
-                        backgroundColor: Colors.white.withOpacity(0.2),
+                        backgroundColor: Colors.white.withValues(alpha: 0.2),
                         backgroundImage: _avatarBytes != null
                             ? MemoryImage(_avatarBytes!) : null,
                         child: _avatarBytes == null
@@ -275,7 +262,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
                     decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
+                        color: Colors.white.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(20)),
                     child: Text(
                       user.unitName.isNotEmpty
@@ -485,7 +472,7 @@ class _TicketCard extends StatelessWidget {
             style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
         if (reg.location.isNotEmpty)
           Text(reg.location, style: const TextStyle(color: Colors.black54, fontSize: 13)),
-        if (reg.isAttended)
+        if (reg!.isAttended)
           Padding(padding: const EdgeInsets.only(top: 6),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -530,9 +517,8 @@ class _TabDelegate extends SliverPersistentHeaderDelegate {
 // ── Редактирование ────────────────────────────────────────────────────────────
 
 class _EditProfileSheet extends StatefulWidget {
-  const _EditProfileSheet({required this.user, required this.onSave, required this.api});
+  const _EditProfileSheet({required this.user, required this.onSave});
   final UserProfile user;
-  final ApiClient api;
   final Future<void> Function(String, String, String, String, String, String) onSave;
   @override State<_EditProfileSheet> createState() => _EditProfileSheetState();
 }
@@ -541,8 +527,6 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
   late final TextEditingController _last, _first, _mid, _phone, _card;
   late String _cardLocation;
   bool _busy = false; String? _error;
-  List<PositionItem> _positions = [];
-  PositionItem? _selectedPosition;
 
   @override
   void initState() {
@@ -554,18 +538,6 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     _card  = TextEditingController(text: widget.user.memberCardNumber);
     _cardLocation = widget.user.memberCardLocation.isNotEmpty
         ? widget.user.memberCardLocation : 'with_user';
-    // Загружаем должности только для бойцов (не штабников)
-    if (!widget.user.isHQStaff) _loadPositions();
-  }
-
-  Future<void> _loadPositions() async {
-    try {
-      final list = await widget.api.listPositions();
-      final current = list.firstWhere(
-          (p) => p.name == widget.user.positionName,
-          orElse: () => list.isNotEmpty ? list.first : PositionItem(id: -1, code: '', name: ''));
-      if (mounted) setState(() { _positions = list; _selectedPosition = current; });
-    } catch (_) {}
   }
 
   @override
@@ -605,24 +577,6 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
       _f('Имя *', _first, TextCapitalization.words),
       _f('Отчество', _mid, TextCapitalization.words),
       _f('Телефон', _phone, TextCapitalization.none, type: TextInputType.phone),
-      // Смена должности — только для бойцов (не штабников)
-      if (!widget.user.isHQStaff && _positions.isNotEmpty) ...[
-        const Align(alignment: Alignment.centerLeft,
-            child: Text('Должность в отряде', style: TextStyle(fontSize: 14))),
-        const SizedBox(height: 6),
-        DropdownButtonFormField<PositionItem>(
-          value: _selectedPosition,
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(
-                borderRadius: BorderRadius.all(Radius.circular(10))),
-            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-          ),
-          items: _positions.map((p) => DropdownMenuItem(
-              value: p, child: Text(p.name))).toList(),
-          onChanged: _busy ? null : (p) => setState(() => _selectedPosition = p),
-        ),
-        const SizedBox(height: 10),
-      ],
       const Align(alignment: Alignment.centerLeft,
           child: Text('Где находится билет?', style: TextStyle(fontSize: 14))),
       const SizedBox(height: 8),

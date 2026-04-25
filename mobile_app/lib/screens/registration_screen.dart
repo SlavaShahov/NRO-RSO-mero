@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -154,10 +153,9 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   }
 
   String? _vPhone(String v) {
-    if (v.trim().isEmpty) return null; // телефон необязателен
-    final c = v.trim().replaceAll(RegExp(r'\D'), ''); // только цифры
-    if (!RegExp(r'^8\d{10}$').hasMatch(c))
-      return 'Формат: 89139391688 (11 цифр, начиная с 8)';
+    if (v.trim().isEmpty) return null;
+    final c = v.replaceAll(RegExp(r'[\s\-\(\)\+]'), '');
+    if (!RegExp(r'^[78]\d{10}$').hasMatch(c)) return 'Формат: 79001234567';
     return null;
   }
 
@@ -549,12 +547,10 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       TextField(
         controller: _phone,
         keyboardType: TextInputType.phone,
-        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-        maxLength: 11,
+        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d\s\-\+\(\)]'))],
         decoration: const InputDecoration(
-          hintText: '8XXXXXXXXXX',
+          hintText: '+7 (___) ___-__-__ (необязательно)',
           prefixIcon: Icon(Icons.phone_outlined),
-          counterText: '',
           contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
           border: OutlineInputBorder(
               borderRadius: BorderRadius.all(Radius.circular(10))),

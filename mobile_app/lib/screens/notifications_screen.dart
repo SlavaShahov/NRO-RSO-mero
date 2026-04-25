@@ -197,10 +197,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       if (comment == null) return;
     }
 
+    if (!ctx.mounted) return;
     try {
       final api = ctx.read<AuthProvider>().api;
-      await api.reviewHQStaffRequest(requestId,
-          approved: approve, comment: comment ?? '');
+      await api.reviewHQStaffRequest(
+        requestId,
+        approved: approve,
+        comment: comment ?? '',
+      );
 
       if (ctx.mounted) {
         // Помечаем прочитанным сразу
@@ -264,7 +268,7 @@ class _NotifTile extends StatelessWidget {
         border: Border.all(
             color: notif.isRead
                 ? Colors.black12
-                : const Color(0xFF1E3A8A).withOpacity(0.3)),
+                : const Color(0xFF1E3A8A).withValues(alpha: 0.3)),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
@@ -278,7 +282,7 @@ class _NotifTile extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                    color: _color.withOpacity(0.1),
+                    color: _color.withValues(alpha: 0.1),
                     shape: BoxShape.circle),
                 child: Icon(_icon, color: _color, size: 22),
               ),

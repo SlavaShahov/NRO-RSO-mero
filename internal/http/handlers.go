@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
+	"time"
 	"encoding/json"
 	"sort"
 	"strings"
@@ -73,6 +75,7 @@ func (h *Handler) Register(r chi.Router) {
 			r.Get("/hq_staff/check_position",   h.hqStaffCheckPosition)
 			r.Post("/me/avatar",                h.uploadAvatar)
 			r.Get("/me/avatar",                 h.getAvatar)
+			r.Delete("/me",                     h.deleteAccount)
 
 			// Notifications
 			r.Get("/notifications",             h.listNotifications)
@@ -374,7 +377,8 @@ func (h *Handler) registerToEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 201, map[string]any{"registration_id": regID, "qr_code": qr.String()})
-	go h.sendParticipantsEmail(context.Background(), eid)
+	// Отправляем список ТОЛЬКО после закрытия регистрации (дедлайн -3 рабочих дня)
+	go h.scheduleAndSendEmail(context.Background(), eid, target.EventDate)
 }
 
 func (h *Handler) scanAttendance(w http.ResponseWriter, r *http.Request) {
@@ -602,6 +606,38 @@ func (h *Handler) hqStaffCheckPosition(w http.ResponseWriter, r *http.Request) {
 
 // ── Email participants list ───────────────────────────────────────────────────
 
+// scheduleAndSendEmail — ждёт дедлайна регистрации, затем шлёт ОДИН итоговый список
+func (h *Handler) scheduleAndSendEmail(ctx context.Context, eventID int, eventDateStr string) {
+	if h.cfg.EmailTo == "" { return }
+	var year, month, day int
+	if _, err := fmt.Sscanf(eventDateStr, "%d-%d-%d", &year, &month, &day); err != nil { return }
+
+	// Считаем дедлайн: -3 рабочих дня до мероприятия, конец дня 23:59:59
+	eventDate := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	lastDay := subWorkdays(eventDate, 3)
+	deadline := time.Date(lastDay.Year(), lastDay.Month(), lastDay.Day(), 23, 59, 59, 0, time.UTC)
+
+	now := time.Now().UTC()
+	if now.Before(deadline) {
+		select {
+		case <-time.After(deadline.Sub(now)):
+		case <-ctx.Done():
+			return
+		}
+	}
+	// Дедлайн наступил — отправляем
+	h.sendParticipantsEmail(ctx, eventID)
+}
+
+func subWorkdays(t time.Time, n int) time.Time {
+	r := t
+	for s := 0; s < n; {
+		r = r.AddDate(0, 0, -1)
+		if r.Weekday() != time.Saturday && r.Weekday() != time.Sunday { s++ }
+	}
+	return r
+}
+
 func (h *Handler) sendParticipantsEmail(ctx context.Context, eventID int) {
 	if h.cfg.EmailTo == "" { return }
 	rows, err := h.svc.GetEventParticipants(ctx, eventID)
@@ -647,6 +683,29 @@ func (h *Handler) sendParticipantsEmail(ctx context.Context, eventID int) {
 	eventTitle := ""
 	if len(participants) > 0 { eventTitle = participants[0].EventTitle }
 	SendParticipantList(h.cfg, eventTitle, participants)
+}
+
+// ── Delete account ───────────────────────────────────────────────────────────
+
+func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
+	uid, ok := r.Context().Value(middleware.UserIDKey).(int)
+	if !ok { writeError(w, 401, "unauthorized"); return }
+	accTok, _ := r.Context().Value(middleware.TokenKey).(string)
+	var in struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Password == "" {
+		writeError(w, 400, "password required"); return
+	}
+	if err := h.svc.DeleteAccount(r.Context(), uid, in.Password, accTok); err != nil {
+		if errors.Is(err, service.ErrForbidden) {
+			writeError(w, 403, "Неверный пароль")
+		} else {
+			writeError(w, 500, "delete failed")
+		}
+		return
+	}
+	writeJSON(w, 200, map[string]any{"status": "deleted"})
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {

@@ -684,6 +684,12 @@ func (r *Repository) GetEventParticipants(ctx context.Context, eventID int) ([]E
 }
 
 var ErrAlreadyAttended = fmt.Errorf("attendance already marked")
+
+// DeleteUser — удаляет пользователя (CASCADE удаляет регистрации, уведомления)
+func (r *Repository) DeleteUser(ctx context.Context, userID int) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM users WHERE id=$1`, userID)
+	return err
+}
 var ErrPositionTaken   = fmt.Errorf("position already taken")
 var ErrHQPositionTaken = fmt.Errorf("hq position already taken")
 

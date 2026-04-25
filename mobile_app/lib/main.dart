@@ -23,8 +23,8 @@ void main() {
 // Android-эмулятор: 10.0.2.2 = хост-машина
 // Реальный телефон: замени на IP своего ПК (например '192.168.1.5')
 // Cloudflare Tunnel: замени на https://xxx.trycloudflare.com
-const String _apiHost = 'rso-nsk.ru.tuna.am';
-//const int    _apiPort = 8088;
+const String _apiHost = 'phb10k-5-44-168-60.ru.tuna.am';
+const int    _apiPort = 8088;
 
 class RsoApp extends StatelessWidget {
   const RsoApp({super.key});
@@ -130,7 +130,8 @@ class _MainShellState extends State<_MainShell> {
     final auth      = context.watch<AuthProvider>();
     final user      = auth.user;
     final api       = auth.api;
-    final showAdmin = user != null && user.isManager;
+    // hq_staff не видит вкладку Управление и не может сканировать QR
+    final showAdmin = user != null && user.isManager && !user.isHQStaff;
 
     final tabs = <Widget>[
       const EventsScreen(),

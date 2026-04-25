@@ -8,6 +8,7 @@ import (
 	"rso-events/internal/repo"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func (s *Service) Me(ctx context.Context, userID int) (models.User, error) {
@@ -59,6 +60,25 @@ func (s *Service) ScanAttendance(ctx context.Context, role string, scannerID int
 		return &repo.RegistrationInfo{RegistrationID: regID}, nil
 	}
 	return info, nil
+}
+
+
+// DeleteAccount — проверяет пароль и удаляет аккаунт
+func (s *Service) DeleteAccount(ctx context.Context, userID int, password, accessToken string) error {
+	u, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil { return err }
+	// Для сравнения нужен хеш — берём напрямую из БД
+	uWithHash, err := s.repo.GetUserByEmail(ctx, u.Email)
+	if err != nil { return err }
+	if bcrypt.CompareHashAndPassword([]byte(uWithHash.PasswordHash), []byte(password)) != nil {
+		return ErrForbidden
+	}
+	if accessToken != "" {
+		if claims, e := s.jwt.Parse(accessToken, "access"); e == nil {
+			_ = s.repo.RevokeToken(ctx, claims.ID, claims.ExpiresAt.Time)
+		}
+	}
+	return s.repo.DeleteUser(ctx, userID)
 }
 
 func isManagerRole(role string) bool {
