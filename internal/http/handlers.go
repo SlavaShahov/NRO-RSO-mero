@@ -2,10 +2,10 @@ package httpapi
 
 import (
 	"context"
-	"fmt"
-	"time"
 	"encoding/json"
 	"sort"
+	"fmt"
+	"time"
 	"strings"
 	"errors"
 	"net/http"
@@ -36,9 +36,13 @@ func (h *Handler) Register(r chi.Router) {
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// Публичные
-		r.Post("/auth/register",  h.register)
-		r.Post("/auth/login",     h.login)
-		r.Post("/auth/refresh",   h.refresh)
+		r.Post("/auth/register",        h.register)
+		r.Post("/auth/login",           h.login)
+		r.Post("/auth/refresh",         h.refresh)
+		r.Post("/auth/verify-email",    h.verifyEmail)
+		r.Post("/auth/resend-code",     h.resendVerificationCode)
+		r.Post("/auth/forgot-password", h.forgotPassword)
+		r.Post("/auth/reset-password",  h.resetPassword)
 		r.Get("/events",          h.listEvents)
 		r.Get("/hqs",             h.listHQs)
 		r.Get("/hqs/{hqID}/units", h.listUnits)
@@ -73,9 +77,10 @@ func (h *Handler) Register(r chi.Router) {
 			r.Get("/hq_staff/pending",          h.hqStaffPending)
 			r.Post("/hq_staff/{id}/review",     h.hqStaffReview)
 			r.Get("/hq_staff/check_position",   h.hqStaffCheckPosition)
+			r.Put("/me/password",               h.changePassword)
+			r.Delete("/me",                     h.deleteAccount)
 			r.Post("/me/avatar",                h.uploadAvatar)
 			r.Get("/me/avatar",                 h.getAvatar)
-			r.Delete("/me",                     h.deleteAccount)
 
 			// Notifications
 			r.Get("/notifications",             h.listNotifications)
@@ -377,7 +382,7 @@ func (h *Handler) registerToEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 201, map[string]any{"registration_id": regID, "qr_code": qr.String()})
-	// Отправляем список ТОЛЬКО после закрытия регистрации (дедлайн -3 рабочих дня)
+	// Письмо отправляется ТОЛЬКО после закрытия регистрации (не сразу)
 	go h.scheduleAndSendEmail(context.Background(), eid, target.EventDate)
 }
 
@@ -606,38 +611,6 @@ func (h *Handler) hqStaffCheckPosition(w http.ResponseWriter, r *http.Request) {
 
 // ── Email participants list ───────────────────────────────────────────────────
 
-// scheduleAndSendEmail — ждёт дедлайна регистрации, затем шлёт ОДИН итоговый список
-func (h *Handler) scheduleAndSendEmail(ctx context.Context, eventID int, eventDateStr string) {
-	if h.cfg.EmailTo == "" { return }
-	var year, month, day int
-	if _, err := fmt.Sscanf(eventDateStr, "%d-%d-%d", &year, &month, &day); err != nil { return }
-
-	// Считаем дедлайн: -3 рабочих дня до мероприятия, конец дня 23:59:59
-	eventDate := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
-	lastDay := subWorkdays(eventDate, 3)
-	deadline := time.Date(lastDay.Year(), lastDay.Month(), lastDay.Day(), 23, 59, 59, 0, time.UTC)
-
-	now := time.Now().UTC()
-	if now.Before(deadline) {
-		select {
-		case <-time.After(deadline.Sub(now)):
-		case <-ctx.Done():
-			return
-		}
-	}
-	// Дедлайн наступил — отправляем
-	h.sendParticipantsEmail(ctx, eventID)
-}
-
-func subWorkdays(t time.Time, n int) time.Time {
-	r := t
-	for s := 0; s < n; {
-		r = r.AddDate(0, 0, -1)
-		if r.Weekday() != time.Saturday && r.Weekday() != time.Sunday { s++ }
-	}
-	return r
-}
-
 func (h *Handler) sendParticipantsEmail(ctx context.Context, eventID int) {
 	if h.cfg.EmailTo == "" { return }
 	rows, err := h.svc.GetEventParticipants(ctx, eventID)
@@ -652,7 +625,7 @@ func (h *Handler) sendParticipantsEmail(ctx context.Context, eventID int) {
 			LastName:     r.LastName,
 			FirstName:    r.FirstName,
 			MiddleName:   r.MiddleName,
-			Institution:  r.HqName,
+			Institution:  strings.TrimPrefix(r.HqName, "ШСО "),
 			UnitName:     r.UnitName,
 			PositionName: r.PositionName,
 			PositionCode: r.PositionCode,
@@ -685,7 +658,64 @@ func (h *Handler) sendParticipantsEmail(ctx context.Context, eventID int) {
 	SendParticipantList(h.cfg, eventTitle, participants)
 }
 
-// ── Delete account ───────────────────────────────────────────────────────────
+
+// ── Schedule email after registration deadline ────────────────────────────────
+
+func (h *Handler) scheduleAndSendEmail(ctx context.Context, eventID int, eventDateStr string) {
+	if h.cfg.EmailTo == "" { return }
+	var year, month, day int
+	if _, err := fmt.Sscanf(eventDateStr, "%d-%d-%d", &year, &month, &day); err != nil { return }
+	eventDate := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	lastDay := emailSubWorkdays(eventDate, 3)
+	deadline := time.Date(lastDay.Year(), lastDay.Month(), lastDay.Day(), 23, 59, 59, 0, time.UTC)
+	now := time.Now().UTC()
+	if now.Before(deadline) {
+		select {
+		case <-time.After(deadline.Sub(now)):
+		case <-ctx.Done():
+			return
+		}
+	}
+	h.sendParticipantsEmail(ctx, eventID)
+}
+
+func emailSubWorkdays(t time.Time, n int) time.Time {
+	r := t
+	for s := 0; s < n; {
+		r = r.AddDate(0, 0, -1)
+		if r.Weekday() != time.Saturday && r.Weekday() != time.Sunday { s++ }
+	}
+	return r
+}
+
+// ── Change password ────────────────────────────────────────────────────────────
+
+func (h *Handler) changePassword(w http.ResponseWriter, r *http.Request) {
+	uid, ok := r.Context().Value(middleware.UserIDKey).(int)
+	if !ok { writeError(w, 401, "unauthorized"); return }
+	var in struct {
+		OldPassword string `json:"old_password"`
+		NewPassword string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil ||
+		in.OldPassword == "" || in.NewPassword == "" {
+		writeError(w, 400, "old_password and new_password required"); return
+	}
+	if len(in.NewPassword) < 8 {
+		writeError(w, 400, "Новый пароль: минимум 8 символов"); return
+	}
+	if err := h.svc.ChangePassword(r.Context(), uid, in.OldPassword, in.NewPassword); err != nil {
+		if errors.Is(err, service.ErrForbidden) {
+			writeError(w, 403, "Неверный текущий пароль")
+		} else {
+			writeError(w, 500, "change password failed")
+		}
+		return
+	}
+	writeJSON(w, 200, map[string]any{"status": "password changed"})
+}
+
+// ── Delete account ────────────────────────────────────────────────────────────
 
 func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	uid, ok := r.Context().Value(middleware.UserIDKey).(int)
@@ -706,6 +736,69 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"status": "deleted"})
+}
+
+
+// ── Email verification ────────────────────────────────────────────────────────
+
+func (h *Handler) verifyEmail(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		UserID int    `json:"user_id"`
+		Code   string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Code == "" || in.UserID == 0 {
+		writeError(w, 400, "user_id и code обязательны"); return
+	}
+	if err := h.svc.VerifyEmail(r.Context(), in.UserID, in.Code); err != nil {
+		writeError(w, 400, err.Error()); return
+	}
+	writeJSON(w, 200, map[string]any{"status": "email verified"})
+}
+
+func (h *Handler) resendVerificationCode(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		UserID int    `json:"user_id"`
+		Email  string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.UserID == 0 || in.Email == "" {
+		writeError(w, 400, "user_id и email обязательны"); return
+	}
+	if err := h.svc.SendVerificationCode(r.Context(), in.UserID, in.Email); err != nil {
+		writeError(w, 500, "send failed"); return
+	}
+	writeJSON(w, 200, map[string]any{"status": "code sent"})
+}
+
+// ── Forgot / Reset password ───────────────────────────────────────────────────
+
+func (h *Handler) forgotPassword(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Email == "" {
+		writeError(w, 400, "email обязателен"); return
+	}
+	if err := h.svc.SendPasswordResetCode(r.Context(), in.Email); err != nil {
+		writeError(w, 400, err.Error()); return
+	}
+	// Не раскрываем существует ли пользователь
+	writeJSON(w, 200, map[string]any{"status": "если email зарегистрирован — код отправлен"})
+}
+
+func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Email       string `json:"email"`
+		Code        string `json:"code"`
+		NewPassword string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil ||
+		in.Email == "" || in.Code == "" || in.NewPassword == "" {
+		writeError(w, 400, "email, code и new_password обязательны"); return
+	}
+	if err := h.svc.ResetPassword(r.Context(), in.Email, in.Code, in.NewPassword); err != nil {
+		writeError(w, 400, err.Error()); return
+	}
+	writeJSON(w, 200, map[string]any{"status": "пароль изменён"})
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {

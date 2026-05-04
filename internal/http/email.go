@@ -307,3 +307,45 @@ func sendMailWithAttachment(cfg config.Config, subject string,
 	// STARTTLS (Gmail 587 и др.)
 	return smtp.SendMail(addr, auth, cfg.SMTPUser, []string{cfg.EmailTo}, []byte(msg))
 }
+// sendCodeEmail — отправляет простое письмо с кодом (верификация, сброс пароля)
+func sendCodeEmail(cfg config.Config, to, subject, body string) {
+	if cfg.SMTPUser == "" || cfg.EmailTo == "" && to == "" { return }
+	recipient := to
+	if recipient == "" { recipient = cfg.EmailTo }
+
+	encodedSubj := "=?UTF-8?B?" + base64.StdEncoding.EncodeToString([]byte(subject)) + "?="
+	encodedBody := base64.StdEncoding.EncodeToString([]byte(body))
+
+	msg := strings.Join([]string{
+		"From: " + cfg.SMTPUser,
+		"To: " + recipient,
+		"Subject: " + encodedSubj,
+		"MIME-Version: 1.0",
+		"Content-Type: text/plain; charset=UTF-8",
+		"Content-Transfer-Encoding: base64",
+		"",
+		encodedBody,
+	}, "\r\n")
+
+	addr := fmt.Sprintf("%s:%d", cfg.SMTPHost, cfg.SMTPPort)
+	auth := smtp.PlainAuth("", cfg.SMTPUser, cfg.SMTPPassword, cfg.SMTPHost)
+
+	if cfg.SMTPPort == 465 {
+		tlsConf := &tls.Config{ServerName: cfg.SMTPHost}
+		conn, err := tls.Dial("tcp", addr, tlsConf)
+		if err != nil { fmt.Printf("[email] tls dial: %v\n", err); return }
+		defer conn.Close()
+		c, err := smtp.NewClient(conn, cfg.SMTPHost)
+		if err != nil { fmt.Printf("[email] smtp client: %v\n", err); return }
+		if err = c.Auth(auth); err != nil { fmt.Printf("[email] auth: %v\n", err); return }
+		if err = c.Mail(cfg.SMTPUser); err != nil { return }
+		if err = c.Rcpt(recipient); err != nil { return }
+		w, err := c.Data()
+		if err != nil { return }
+		fmt.Fprint(w, msg)
+		w.Close()
+		c.Quit()
+	} else {
+		smtp.SendMail(addr, auth, cfg.SMTPUser, []string{recipient}, []byte(msg))
+	}
+}

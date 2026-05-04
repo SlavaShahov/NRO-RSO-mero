@@ -130,6 +130,89 @@ class _ProfileScreenState extends State<ProfileScreen>
     if (mounted) setState(() { _avatarBytes = bytes; _avatarUserId = user.id; });
   }
 
+  // ── Смена пароля ─────────────────────────────────────────────────────────
+  Future<void> _changePassword() async {
+    final oldPwC   = TextEditingController();
+    final newPwC   = TextEditingController();
+    final confC    = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Смена пароля'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: oldPwC, obscureText: true,
+            decoration: const InputDecoration(labelText: 'Текущий пароль', border: OutlineInputBorder())),
+          const SizedBox(height: 10),
+          TextField(controller: newPwC, obscureText: true,
+            decoration: const InputDecoration(labelText: 'Новый пароль (мин. 8)', border: OutlineInputBorder())),
+          const SizedBox(height: 10),
+          TextField(controller: confC, obscureText: true,
+            decoration: const InputDecoration(labelText: 'Повторите новый пароль', border: OutlineInputBorder())),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
+          TextButton(onPressed: () => Navigator.pop(context, true),
+            child: const Text('Сохранить', style: TextStyle(fontWeight: FontWeight.bold))),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    if (newPwC.text.length < 8) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Новый пароль: минимум 8 символов')));
+      return;
+    }
+    if (newPwC.text != confC.text) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Пароли не совпадают')));
+      return;
+    }
+    try {
+      await widget.api.changePassword(
+          oldPassword: oldPwC.text, newPassword: newPwC.text);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Пароль успешно изменён')));
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: Colors.red));
+    }
+  }
+
+  // ── Удаление аккаунта ────────────────────────────────────────────────────
+  Future<void> _deleteAccount() async {
+    final pwC = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Удалить аккаунт?'),
+        content: Column(mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Это действие необратимо.\nВсе данные и регистрации будут удалены.',
+              style: TextStyle(color: Colors.black87)),
+          const SizedBox(height: 14),
+          TextField(controller: pwC, obscureText: true,
+            decoration: const InputDecoration(labelText: 'Пароль для подтверждения', border: OutlineInputBorder())),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
+          TextButton(onPressed: () => Navigator.pop(context, true),
+            child: const Text('Удалить',
+                style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final pw = pwC.text.trim();
+    if (pw.isEmpty) return;
+    try {
+      await widget.api.deleteAccount(pw);
+      if (mounted) await context.read<AuthProvider>().logout();
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: Colors.red));
+    }
+  }
+
   Future<void> _logout() async {
     final ok = await showDialog<bool>(context: context,
         builder: (_) => AlertDialog(
@@ -220,6 +303,15 @@ class _ProfileScreenState extends State<ProfileScreen>
               const NotificationBell(),
               IconButton(icon: const Icon(Icons.edit_outlined),
                   tooltip: 'Редактировать', onPressed: _openEdit),
+              IconButton(
+                icon: const Icon(Icons.lock_reset_outlined),
+                tooltip: 'Сменить пароль',
+                onPressed: _changePassword),
+              IconButton(
+                icon: const Icon(Icons.delete_outline),
+                tooltip: 'Удалить аккаунт',
+                color: Colors.red.shade300,
+                onPressed: _deleteAccount),
               IconButton(icon: const Icon(Icons.logout),
                   tooltip: 'Выйти', onPressed: _logout),
             ],

@@ -75,6 +75,11 @@ func (r *Repository) GetUserByID(ctx context.Context, id int) (models.User, erro
 	return u, err
 }
 
+// GetUserByIDWithHash — для смены пароля и удаления аккаунта (возвращает password_hash)
+func (r *Repository) GetUserByIDWithHash(ctx context.Context, id int) (models.User, error) {
+	return scanUser(r.db.QueryRow(ctx, userSelect+" WHERE u.id=$1", id))
+}
+
 func (r *Repository) UpdateLastLogin(ctx context.Context, id int) error {
 	_, err := r.db.Exec(ctx, `UPDATE users SET last_login=NOW() WHERE id=$1`, id)
 	return err
@@ -347,7 +352,7 @@ func (r *Repository) ListEvents(ctx context.Context, userID int,
 	safeSearch := strings.NewReplacer(`%`, `\%`, `_`, `\_`).Replace(search)
 	rows, err := r.db.Query(ctx, `
 		SELECT e.id, e.title,
-		       COALESCE(e.short_description, e.description, ''),
+		       COALESCE(e.description, ''),
 		       e.event_date::text, e.start_time::text,
 		       COALESCE(e.end_time::text, ''),
 		       COALESCE(e.location, ''),
@@ -683,14 +688,97 @@ func (r *Repository) GetEventParticipants(ctx context.Context, eventID int) ([]E
 	return result, nil
 }
 
-var ErrAlreadyAttended = fmt.Errorf("attendance already marked")
 
-// DeleteUser — удаляет пользователя (CASCADE удаляет регистрации, уведомления)
+// DeleteUser — удаляет пользователя (CASCADE: регистрации, уведомления, hq_staff)
 func (r *Repository) DeleteUser(ctx context.Context, userID int) error {
 	_, err := r.db.Exec(ctx, `DELETE FROM users WHERE id=$1`, userID)
 	return err
 }
+
+// UpdatePasswordHash — обновляет хеш пароля
+func (r *Repository) UpdatePasswordHash(ctx context.Context, userID int, hash string) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE users SET password_hash=$2, updated_at=NOW() WHERE id=$1`, userID, hash)
+	return err
+}
+
+var ErrAlreadyAttended = fmt.Errorf("attendance already marked")
 var ErrPositionTaken   = fmt.Errorf("position already taken")
 var ErrHQPositionTaken = fmt.Errorf("hq position already taken")
 
 func IsNotFound(err error) bool { return err == pgx.ErrNoRows }
+// SaveVerificationCode — сохраняет код подтверждения email (6 цифр, живёт 10 минут)
+func (r *Repository) SaveVerificationCode(ctx context.Context, userID int, code string) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO email_verifications (user_id, code, expires_at)
+		VALUES ($1, $2, NOW() + INTERVAL '10 minutes')
+		ON CONFLICT (user_id) DO UPDATE
+			SET code=$2, expires_at=NOW() + INTERVAL '10 minutes', attempts=0
+	`, userID, code)
+	return err
+}
+
+// VerifyEmailCode — проверяет код, возвращает true если верный и не истёкший
+func (r *Repository) VerifyEmailCode(ctx context.Context, userID int, code string) (bool, error) {
+	var ok bool
+	err := r.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM email_verifications
+			WHERE user_id=$1 AND code=$2 AND expires_at>NOW()
+		)
+	`, userID, code).Scan(&ok)
+	return ok, err
+}
+
+// MarkEmailVerified — помечает email как подтверждённый и удаляет код
+func (r *Repository) MarkEmailVerified(ctx context.Context, userID int) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil { return err }
+	defer tx.Rollback(ctx)
+	_, err = tx.Exec(ctx, `UPDATE users SET email_verified=true WHERE id=$1`, userID)
+	if err != nil { return err }
+	_, _ = tx.Exec(ctx, `DELETE FROM email_verifications WHERE user_id=$1`, userID)
+	return tx.Commit(ctx)
+}
+
+// SavePasswordResetCode — сохраняет код сброса пароля (живёт 15 минут)
+func (r *Repository) SavePasswordResetCode(ctx context.Context, email, code string) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO password_resets (email, code, expires_at)
+		VALUES ($1, $2, NOW() + INTERVAL '15 minutes')
+		ON CONFLICT (email) DO UPDATE
+			SET code=$2, expires_at=NOW() + INTERVAL '15 minutes'
+	`, email, code)
+	return err
+}
+
+// VerifyResetCode — проверяет код сброса пароля
+func (r *Repository) VerifyResetCode(ctx context.Context, email, code string) (bool, error) {
+	var ok bool
+	err := r.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM password_resets
+			WHERE email=$1 AND code=$2 AND expires_at>NOW()
+		)
+	`, email, code).Scan(&ok)
+	return ok, err
+}
+
+// ResetPassword — устанавливает новый пароль и удаляет код сброса
+func (r *Repository) ResetPassword(ctx context.Context, email, newHash string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil { return err }
+	defer tx.Rollback(ctx)
+	_, err = tx.Exec(ctx,
+		`UPDATE users SET password_hash=$2, updated_at=NOW() WHERE email=$1`, email, newHash)
+	if err != nil { return err }
+	_, _ = tx.Exec(ctx, `DELETE FROM password_resets WHERE email=$1`, email)
+	return tx.Commit(ctx)
+}
+
+// GetUserIDByEmail — получает ID пользователя по email (для верификации)
+func (r *Repository) GetUserIDByEmail(ctx context.Context, email string) (int, error) {
+	var id int
+	err := r.db.QueryRow(ctx, `SELECT id FROM users WHERE email=$1`, email).Scan(&id)
+	return id, err
+}

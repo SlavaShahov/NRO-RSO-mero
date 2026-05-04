@@ -30,7 +30,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   final _passwordRepeat = TextEditingController();
 
   _RegType _regType         = _RegType.fighter;
-  String   _cardLocation    = 'with_user'; // with_user | in_hq
+  String   _cardLocation    = 'with_user';
   File?    _avatarFile;
   Uint8List? _avatarBytes;
 
@@ -79,7 +79,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           _hqs          = results[0] as List<HQItem>;
           _positions    = positions;
           _hqPositions  = hqPositions;
-          _loadingHqs   = false; _loadingPositions = false;
+          _loadingHqs   = false;
+          _loadingPositions = false;
           _selectedPosition = positions.firstWhere(
                 (p) => p.code == 'fighter',
             orElse: () => positions.isNotEmpty ? positions.first
@@ -87,22 +88,32 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           );
           if (hqPositions.isNotEmpty) _selectedHQPosition = hqPositions.first;
         });
+        print('Загружено штабов: ${_hqs.length}');
+        print('Загружено должностей: ${_positions.length}');
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Ошибка загрузки справочников: $e');
       if (mounted) setState(() { _loadingHqs = false; _loadingPositions = false; });
     }
   }
 
   Future<void> _onHQSelected(HQItem? hq) async {
+    debugPrint('Выбран штаб: ${hq?.name} (id: ${hq?.id})');
     setState(() {
-      _selectedHQ = hq; _selectedUnit = null;
-      _units = []; _loadingUnits = hq != null;
+      _selectedHQ = hq;
+      _selectedUnit = null;
+      _units = [];
+      _loadingUnits = hq != null;
     });
     if (hq == null) return;
     try {
       final units = await widget.api.listUnits(hq.id);
+      debugPrint('Загружено отрядов: ${units.length}');
       if (mounted) setState(() { _units = units; _loadingUnits = false; });
-    } catch (_) { if (mounted) setState(() => _loadingUnits = false); }
+    } catch (e) {
+      debugPrint('Ошибка загрузки отрядов: $e');
+      if (mounted) setState(() => _loadingUnits = false);
+    }
   }
 
   // ── Аватар ────────────────────────────────────────────────────────────────
@@ -146,16 +157,23 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   }
 
   String? _vEmail(String v) {
-    if (v.trim().isEmpty) return 'Введите email';
-    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v.trim()))
+    final e = v.trim().toLowerCase();
+    if (e.isEmpty) return 'Введите email';
+    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(e))
       return 'Некорректный email';
+    const allowed = [
+      '@yandex.ru', '@gmail.com', '@mail.ru', '@rso-nsk.ru',
+      '@inbox.ru', '@bk.ru', '@list.ru', '@outlook.com', '@icloud.com',
+    ];
+    if (!allowed.any((d) => e.endsWith(d)))
+      return 'Допустимые домены: yandex.ru, gmail.com, mail.ru, rso-nsk.ru';
     return null;
   }
 
   String? _vPhone(String v) {
     if (v.trim().isEmpty) return null;
     final c = v.replaceAll(RegExp(r'[\s\-\(\)\+]'), '');
-    if (!RegExp(r'^[78]\d{10}$').hasMatch(c)) return 'Формат: 79001234567';
+    if (!RegExp(r'^[8]\d{10}$').hasMatch(c)) return 'Формат: 81234567890';
     return null;
   }
 
@@ -165,6 +183,17 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     if (!RegExp(r'[A-ZА-ЯЁ]').hasMatch(v)) return 'Нужна заглавная буква';
     if (!RegExp(r'[0-9]').hasMatch(v)) return 'Нужна цифра';
     return null;
+  }
+
+  void _cap(TextEditingController c) {
+    final s = c.text.trim();
+    if (s.isEmpty) return;
+    final fixed = s.split(' ').map((w) =>
+    w.isEmpty ? w : w[0].toUpperCase() + w.substring(1).toLowerCase()
+    ).join(' ');
+    if (fixed != c.text) c.value = c.value.copyWith(
+        text: fixed,
+        selection: TextSelection.collapsed(offset: fixed.length));
   }
 
   Future<void> _submit() async {
@@ -186,19 +215,20 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 
     if (errors.isNotEmpty) { setState(() => _error = errors.join('\n')); return; }
 
+    _cap(_lastName); _cap(_firstName);
+    if (_middleName.text.trim().isNotEmpty) _cap(_middleName);
+
     setState(() { _busy = true; _error = null; });
     try {
       final auth = context.read<AuthProvider>();
       await auth.register(
-        email:               _email.text.trim(),
+        email:               _email.text.trim().toLowerCase(),
         password:            _password.text,
         firstName:           _firstName.text.trim(),
         lastName:            _lastName.text.trim(),
         middleName:          _middleName.text.trim(),
         phone:               _phone.text.trim(),
-        // Членский билет: номер только если он на руках
-        memberCardNumber:    _cardLocation == 'with_user'
-            ? _memberCard.text.trim() : '',
+        memberCardNumber:    _cardLocation == 'with_user' ? _memberCard.text.trim() : '',
         memberCardLocation:  _cardLocation,
         unitId:              _regType == _RegType.fighter ? _selectedUnit?.id : null,
         unitPositionId:      _regType == _RegType.fighter ? _selectedPosition?.id : null,
@@ -206,14 +236,22 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         hqPositionId:        _regType == _RegType.hqStaff ? _selectedHQPosition?.id : null,
       );
 
-      // Сохраняем аватар если выбран
       final user = auth.user;
       if (_avatarFile != null && user != null) {
         await AvatarService().saveFromFile(user.id, _avatarFile!);
       }
 
       if (!mounted) return;
-      // ← Входим сразу, без ожидания одобрения для штабников
+      // Открываем экран верификации email
+      final userId = user?.id;
+      final email  = _email.text.trim().toLowerCase();
+      if (userId != null) {
+        await Navigator.push(context, MaterialPageRoute(
+          builder: (_) => EmailVerificationScreen(
+              api: widget.api, userId: userId, email: email),
+        ));
+      }
+      if (!mounted) return;
       Navigator.pop(context);
     } on ApiException catch (e) {
       setState(() => _error = e.message);
@@ -233,7 +271,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // Выбор типа
           _section('Тип регистрации'),
           _typeSelector(),
 
@@ -252,36 +289,29 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
               ),
             ),
 
-          // Аватар
           _section('Фото профиля'),
           _avatarPicker(),
 
-          // Личные данные
           _section('Личные данные'),
           _nameField('Фамилия *', _lastName, 'Смирнов'),
           _nameField('Имя *',     _firstName, 'Александр'),
           _nameField('Отчество',  _middleName, 'Необязательно'),
 
-          // Контакты
           _section('Контакты и безопасность'),
           _emailField(),
           _phoneField(),
           _pwField('Пароль *',          _password,  _hidePw,  () => setState(() => _hidePw  = !_hidePw)),
           _pwField('Подтверждение *',   _passwordRepeat, _hidePw2, () => setState(() => _hidePw2 = !_hidePw2)),
 
-          // ── Членский билет: СНАЧАЛА местонахождение, потом номер ──────────
           _section('Членский билет'),
-          // 1. Сначала выбираем где билет
           const Text('Где находится билет?', style: TextStyle(fontSize: 14)),
           const SizedBox(height: 8),
           _locationPicker(),
           const SizedBox(height: 12),
-          // 2. Потом номер — только если на руках
           const Text('Номер членского билета', style: TextStyle(fontSize: 14)),
           const SizedBox(height: 6),
           TextField(
             controller: _memberCard,
-            // Заблокировано если билет в РШ
             enabled: _cardLocation == 'with_user',
             decoration: InputDecoration(
               hintText: _cardLocation == 'in_hq'
@@ -307,7 +337,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
               ),
             ),
 
-          // Структура
           _section(_regType == _RegType.hqStaff ? 'Штаб' : 'Принадлежность к структуре'),
 
           const Text('Штаб (учебное заведение)', style: TextStyle(fontSize: 14)),
@@ -333,7 +362,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
               _drop<UnitItem>(
                 value: _selectedUnit,
                 hint: _selectedHQ == null ? 'Сначала выберите штаб'
-                    : _units.isEmpty ? 'Нет отрядов' : 'Выберите отряд',
+                    : _units.isEmpty ? 'В этом штабе нет отрядов' : 'Выберите отряд',
                 items: _units.map((u) => DropdownMenuItem(
                     value: u, child: Text(u.name, overflow: TextOverflow.ellipsis))).toList(),
                 onChanged: (_busy || _selectedHQ == null || _units.isEmpty) ? null
@@ -387,10 +416,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
               child: _busy
                   ? const SizedBox(height: 22, width: 22,
                   child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : Text(
-                  _regType == _RegType.hqStaff
-                      ? 'Зарегистрироваться' : 'Зарегистрироваться',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                  : const Text('Зарегистрироваться',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
             ),
           ),
           const SizedBox(height: 8),
@@ -476,7 +503,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     return GestureDetector(
       onTap: () => setState(() {
         _cardLocation = val;
-        // Если выбрали «В РШ» — очищаем поле номера
         if (val == 'in_hq') _memberCard.clear();
       }),
       child: Container(
@@ -549,7 +575,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         keyboardType: TextInputType.phone,
         inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d\s\-\+\(\)]'))],
         decoration: const InputDecoration(
-          hintText: '+7 (___) ___-__-__ (необязательно)',
+          hintText: '81234567890',
           prefixIcon: Icon(Icons.phone_outlined),
           contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
           border: OutlineInputBorder(
@@ -587,13 +613,15 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     required List<DropdownMenuItem<T>> items,
     required void Function(T?)? onChanged,
   }) => DropdownButtonFormField<T>(
-    value: value, isExpanded: true,
+    value: value,
+    isExpanded: true,
     hint: Text(hint, style: const TextStyle(color: Colors.black45)),
     decoration: const InputDecoration(
       contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(10))),
     ),
-    items: items, onChanged: onChanged,
+    items: items,
+    onChanged: onChanged,
   );
 }
 
@@ -604,5 +632,155 @@ class _CapFirst extends TextInputFormatter {
     final words = nv.text.split(' ');
     final result = words.map((w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1)).join(' ');
     return nv.copyWith(text: result, selection: nv.selection);
+  }
+}
+
+// ── Экран подтверждения email ─────────────────────────────────────────────────
+
+class EmailVerificationScreen extends StatefulWidget {
+  const EmailVerificationScreen({
+    super.key,
+    required this.api,
+    required this.userId,
+    required this.email,
+  });
+  final ApiClient api;
+  final int userId;
+  final String email;
+
+  @override
+  State<EmailVerificationScreen> createState() =>
+      _EmailVerificationScreenState();
+}
+
+class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
+  final _codeC = TextEditingController();
+  bool _busy = false;
+  String? _error;
+  String? _info;
+  int _resendCooldown = 60;
+
+  @override
+  void initState() {
+    super.initState();
+    _startCooldown();
+  }
+
+  @override
+  void dispose() { _codeC.dispose(); super.dispose(); }
+
+  void _startCooldown() {
+    Future.doWhile(() async {
+      if (!mounted || _resendCooldown <= 0) return false;
+      await Future.delayed(const Duration(seconds: 1));
+      if (!mounted) return false;
+      setState(() => _resendCooldown--);
+      return _resendCooldown > 0;
+    });
+  }
+
+  Future<void> _verify() async {
+    final code = _codeC.text.trim();
+    if (code.length != 6) {
+      setState(() => _error = 'Введите 6-значный код');
+      return;
+    }
+    setState(() { _busy = true; _error = null; });
+    try {
+      await widget.api.verifyEmail(userId: widget.userId, code: code);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Email подтверждён ✓')));
+      Navigator.pop(context);
+    } on ApiException catch (e) {
+      setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _resend() async {
+    if (_resendCooldown > 0) return;
+    setState(() { _busy = true; _error = null; _info = null; });
+    try {
+      await widget.api.resendVerificationCode(
+          userId: widget.userId, email: widget.email);
+      if (!mounted) return;
+      setState(() { _info = 'Код повторно отправлен'; _resendCooldown = 60; });
+      _startCooldown();
+    } on ApiException catch (e) {
+      setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Подтверждение email')),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(24),
+          children: [
+            const SizedBox(height: 24),
+            const Icon(Icons.mark_email_unread_outlined,
+                size: 64, color: Color(0xFF1E3A8A)),
+            const SizedBox(height: 20),
+            Text('Код отправлен на ${widget.email}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 15, color: Colors.black54)),
+            const SizedBox(height: 32),
+            TextField(
+              controller: _codeC,
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 8),
+              decoration: InputDecoration(
+                hintText: '------',
+                counterText: '',
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            if (_error != null)
+              Padding(padding: const EdgeInsets.only(top: 12),
+                  child: Text(_error!, textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.red))),
+            if (_info != null)
+              Padding(padding: const EdgeInsets.only(top: 12),
+                  child: Text(_info!, textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.green))),
+            const SizedBox(height: 24),
+            SizedBox(height: 52,
+              child: ElevatedButton(
+                onPressed: _busy ? null : _verify,
+                child: _busy
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text('Подтвердить',
+                    style: TextStyle(fontSize: 16)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Center(
+              child: _resendCooldown > 0
+                  ? Text('Повторная отправка через $_resendCooldown с.',
+                  style: const TextStyle(color: Colors.black45, fontSize: 13))
+                  : TextButton(
+                  onPressed: _busy ? null : _resend,
+                  child: const Text('Отправить повторно',
+                      style: TextStyle(color: Color(0xFF4CAF50)))),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Пропустить',
+                  style: TextStyle(color: Colors.black38, fontSize: 12)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

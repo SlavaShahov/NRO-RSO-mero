@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"rso-events/internal/auth"
+	"rso-events/internal/config"
 	"rso-events/internal/models"
 	"rso-events/internal/repo"
 
@@ -24,9 +25,12 @@ var (
 type Service struct {
 	repo *repo.Repository
 	jwt  *auth.JWTManager
+	cfg  config.Config
 }
 
-func New(r *repo.Repository, j *auth.JWTManager) *Service { return &Service{repo: r, jwt: j} }
+func New(r *repo.Repository, j *auth.JWTManager, cfg config.Config) *Service {
+	return &Service{repo: r, jwt: j, cfg: cfg}
+}
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 

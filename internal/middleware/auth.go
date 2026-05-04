@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-
 	"rso-events/internal/service"
 )
 

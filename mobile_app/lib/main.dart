@@ -21,8 +21,7 @@ void main() {
 }
 
 // Android-эмулятор: 10.0.2.2 = хост-машина
-// Реальный телефон: замени на IP своего ПК (например '192.168.1.5')
-// Cloudflare Tunnel: замени на https://xxx.trycloudflare.com
+// rso-nsk.ru.tuna.am
 const String _apiHost = 'rso-nsk.ru.tuna.am';
 const int    _apiPort = 8088;
 
@@ -31,7 +30,7 @@ class RsoApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final api = ApiClient(baseUrl: 'http://$_apiHost');
+    final api = ApiClient(baseUrl: 'https://$_apiHost');
 
     return MultiProvider(
       providers: [
@@ -130,7 +129,7 @@ class _MainShellState extends State<_MainShell> {
     final auth      = context.watch<AuthProvider>();
     final user      = auth.user;
     final api       = auth.api;
-    // hq_staff не видит вкладку Управление и не может сканировать QR
+    // hq_staff не видит вкладку «Управление» и кнопку сканера
     final showAdmin = user != null && user.isManager && !user.isHQStaff;
 
     final tabs = <Widget>[

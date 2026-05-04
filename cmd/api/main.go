@@ -27,7 +27,7 @@ func main() {
 	defer pool.Close()
 	jwtManager := auth.NewJWTManager(cfg.JWTSecret, cfg.JWTTTL, cfg.RefreshTTL)
 	repository := repo.New(pool)
-	svc := service.New(repository, jwtManager)
+	svc := service.New(repository, jwtManager, cfg)
 	handler := httpapi.New(svc, cfg)
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
