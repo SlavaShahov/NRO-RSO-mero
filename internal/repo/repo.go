@@ -1048,3 +1048,25 @@ func (r *Repository) GetEventByID(ctx context.Context, eventID int) (*models.Eve
 	if err != nil { return nil, err }
 	return &e, nil
 }
+
+// ListUpcomingEventDates — все опубликованные мероприятия у которых дата >= сегодня.
+// Используется при старте сервера для восстановления горутин отправки email.
+func (r *Repository) ListUpcomingEventDates(ctx context.Context) ([]struct{ ID int; EventDate string }, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT e.id, e.event_date::text
+		FROM events e
+		JOIN event_statuses es ON es.id = e.status_id
+		WHERE es.code IN ('published','active')
+		  AND e.event_date >= CURRENT_DATE
+		ORDER BY e.event_date
+	`)
+	if err != nil { return nil, err }
+	defer rows.Close()
+	var result []struct{ ID int; EventDate string }
+	for rows.Next() {
+		var row struct{ ID int; EventDate string }
+		if err := rows.Scan(&row.ID, &row.EventDate); err != nil { return nil, err }
+		result = append(result, row)
+	}
+	return result, nil
+}

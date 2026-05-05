@@ -36,6 +36,8 @@ func main() {
 	r.Use(middleware.Timeout(30 * time.Second))
 	r.Use(middleware.Logger)
 	handler.Register(r)
+	// Восстанавливаем горутины отправки email после перезапуска
+	go handler.RestoreSchedules(ctx)
 	log.Printf("api started on %s", cfg.AppAddr)
 	if err := http.ListenAndServe(cfg.AppAddr, r); err != nil {
 		log.Fatal(err)

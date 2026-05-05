@@ -36,9 +36,13 @@ func (h *Handler) Register(r chi.Router) {
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// Публичные
-		r.Post("/auth/register",  h.register)
-		r.Post("/auth/login",     h.login)
-		r.Post("/auth/refresh",   h.refresh)
+		r.Post("/auth/register",        h.register)
+		r.Post("/auth/login",           h.login)
+		r.Post("/auth/refresh",         h.refresh)
+		r.Post("/auth/verify-email",    h.verifyEmail)
+		r.Post("/auth/resend-code",     h.resendCode)
+		r.Post("/auth/forgot-password", h.forgotPassword)
+		r.Post("/auth/reset-password",  h.resetPassword)
 		r.Get("/events",          h.listEvents)
 		r.Get("/hqs",             h.listHQs)
 		r.Get("/hqs/{hqID}/units", h.listUnits)
@@ -361,6 +365,8 @@ func (h *Handler) createEvent(w http.ResponseWriter, r *http.Request) {
 			"🎉 Новое мероприятие: "+title, b, map[string]any{"event_id": eid})
 	}(context.Background(), in.Title, in.EventDate, in.Location, id)
 
+	// Запускаем отложенную отправку списка участников
+	go h.scheduleAndSendEmail(context.Background(), id, in.EventDate)
 	writeJSON(w, 201, map[string]any{"event_id": id, "status": "created"})
 }
 
@@ -684,6 +690,38 @@ func (h *Handler) sendParticipantsEmail(ctx context.Context, eventID int) {
 
 // ── Schedule email after registration deadline ────────────────────────────────
 
+
+// RestoreSchedules — при старте сервера восстанавливает горутины для всех
+// предстоящих мероприятий у которых дедлайн рассылки ещё не прошёл.
+// Без этого горутины пропадают при перезапуске сервера.
+func (h *Handler) RestoreSchedules(ctx context.Context) {
+	if h.cfg.EmailTo == "" { return }
+	events, err := h.svc.ListUpcomingEventDates(ctx)
+	if err != nil {
+		fmt.Printf("[scheduler] failed to load upcoming events: %v\n", err)
+		return
+	}
+	count := 0
+	for _, ev := range events {
+		var year, month, day int
+		if _, err := fmt.Sscanf(ev.EventDate, "%d-%d-%d", &year, &month, &day); err != nil { continue }
+		eventDate := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+		deadlineDay := emailSubWorkdays(eventDate, 3)
+		deadline := time.Date(deadlineDay.Year(), deadlineDay.Month(), deadlineDay.Day(),
+			23, 59, 59, 0, time.UTC)
+		// Горутину нужно запускать только если дедлайн ещё не прошёл
+		if time.Now().UTC().Before(deadline) {
+			eid := ev.ID
+			date := ev.EventDate
+			go h.scheduleAndSendEmail(ctx, eid, date)
+			count++
+			fmt.Printf("[scheduler] restored schedule for event %d (%s), deadline %s\n",
+				eid, date, deadline.Format("2006-01-02 15:04:05"))
+		}
+	}
+	fmt.Printf("[scheduler] restored %d schedules\n", count)
+}
+
 func (h *Handler) scheduleAndSendEmail(ctx context.Context, eventID int, eventDateStr string) {
 	if h.cfg.EmailTo == "" { return }
 	var year, month, day int
@@ -956,6 +994,70 @@ func (h *Handler) unblockUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "unblock failed"); return
 	}
 	writeJSON(w, 200, map[string]any{"status": "unblocked"})
+}
+
+
+// ── Email verification & password reset ──────────────────────────────────────
+
+func (h *Handler) verifyEmail(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		UserID int    `json:"user_id"`
+		Code   string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, 400, "invalid json"); return
+	}
+	if in.UserID == 0 || in.Code == "" {
+		writeError(w, 400, "user_id and code required"); return
+	}
+	if err := h.svc.VerifyEmail(r.Context(), in.UserID, in.Code); err != nil {
+		writeError(w, 400, err.Error()); return
+	}
+	writeJSON(w, 200, map[string]any{"status": "verified"})
+}
+
+func (h *Handler) resendCode(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		UserID int    `json:"user_id"`
+		Email  string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, 400, "invalid json"); return
+	}
+	if in.UserID == 0 || in.Email == "" {
+		writeError(w, 400, "user_id and email required"); return
+	}
+	if err := h.svc.SendVerificationCode(r.Context(), in.UserID, in.Email); err != nil {
+		writeError(w, 500, "send failed"); return
+	}
+	writeJSON(w, 200, map[string]any{"status": "sent"})
+}
+
+func (h *Handler) forgotPassword(w http.ResponseWriter, r *http.Request) {
+	var in struct{ Email string `json:"email"` }
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Email == "" {
+		writeError(w, 400, "email required"); return
+	}
+	_ = h.svc.SendPasswordResetCode(r.Context(), in.Email)
+	writeJSON(w, 200, map[string]any{"status": "sent"})
+}
+
+func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Email       string `json:"email"`
+		Code        string `json:"code"`
+		NewPassword string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, 400, "invalid json"); return
+	}
+	if in.Email == "" || in.Code == "" || in.NewPassword == "" {
+		writeError(w, 400, "email, code and new_password required"); return
+	}
+	if err := h.svc.ResetPassword(r.Context(), in.Email, in.Code, in.NewPassword); err != nil {
+		writeError(w, 400, err.Error()); return
+	}
+	writeJSON(w, 200, map[string]any{"status": "password_reset"})
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {

@@ -259,22 +259,28 @@ func (s *Service) sendEmail(to, subject, body string) {
 		"Content-Transfer-Encoding: base64\r\n\r\n" + encodedBody
 	addr := fmt.Sprintf("%s:%d", s.cfg.SMTPHost, s.cfg.SMTPPort)
 	auth := smtp.PlainAuth("", s.cfg.SMTPUser, s.cfg.SMTPPassword, s.cfg.SMTPHost)
+	fmt.Printf("[email] sending to %s via %s\n", to, addr)
 	if s.cfg.SMTPPort == 465 {
 		conn, err := tls.Dial("tcp", addr, &tls.Config{ServerName: s.cfg.SMTPHost})
-		if err != nil { return }
+		if err != nil { fmt.Printf("[email] tls dial err: %v\n", err); return }
 		defer conn.Close()
 		c, err := smtp.NewClient(conn, s.cfg.SMTPHost)
-		if err != nil { return }
-		if c.Auth(auth) != nil { return }
-		if c.Mail(s.cfg.SMTPUser) != nil { return }
-		if c.Rcpt(to) != nil { return }
+		if err != nil { fmt.Printf("[email] client err: %v\n", err); return }
+		if err := c.Auth(auth); err != nil { fmt.Printf("[email] auth err: %v\n", err); return }
+		if err := c.Mail(s.cfg.SMTPUser); err != nil { fmt.Printf("[email] mail err: %v\n", err); return }
+		if err := c.Rcpt(to); err != nil { fmt.Printf("[email] rcpt err: %v\n", err); return }
 		w, err := c.Data()
-		if err != nil { return }
+		if err != nil { fmt.Printf("[email] data err: %v\n", err); return }
 		fmt.Fprint(w, msg)
 		w.Close()
-		c.Quit()
+		if err := c.Quit(); err != nil { fmt.Printf("[email] quit err: %v\n", err) }
+		fmt.Printf("[email] sent OK to %s\n", to)
 	} else {
-		smtp.SendMail(addr, auth, s.cfg.SMTPUser, []string{to}, []byte(msg))
+		if err := smtp.SendMail(addr, auth, s.cfg.SMTPUser, []string{to}, []byte(msg)); err != nil {
+			fmt.Printf("[email] sendmail err to %s: %v\n", to, err)
+		} else {
+			fmt.Printf("[email] sent OK to %s\n", to)
+		}
 	}
 }
 

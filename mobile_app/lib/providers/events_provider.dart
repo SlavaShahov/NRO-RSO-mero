@@ -34,6 +34,9 @@ class EventsProvider extends ChangeNotifier {
     _api.accessToken = token;
     if (token == _lastToken) return;
     _lastToken = token;
+    // Сбрасываем список при смене аккаунта — иначе статусы регистрации
+    // предыдущего пользователя попадут в merge и останутся на экране
+    _events = [];
     loadEvents();
   }
 

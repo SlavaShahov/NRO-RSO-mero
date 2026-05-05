@@ -318,3 +318,8 @@ func (s *Service) SaveEventBanner(ctx context.Context, eventID int, base64Data s
 func (s *Service) GetEventBanner(ctx context.Context, eventID int) (string, error) {
 	return s.repo.GetEventBanner(ctx, eventID)
 }
+
+// ListUpcomingEventDates — для восстановления горутин при старте
+func (s *Service) ListUpcomingEventDates(ctx context.Context) ([]struct{ ID int; EventDate string }, error) {
+	return s.repo.ListUpcomingEventDates(ctx)
+}
