@@ -270,3 +270,51 @@ func subtractWorkdays(t time.Time, days int) time.Time {
 	}
 	return result
 }
+
+// ── Брутфорс ──────────────────────────────────────────────────────────────────
+
+func (s *Service) IsRateLimited(ctx context.Context, email, ip string) (bool, error) {
+	return s.repo.IsRateLimited(ctx, email, ip)
+}
+
+func (s *Service) RecordLoginAttempt(ctx context.Context, email, ip string, success bool) {
+	s.repo.RecordLoginAttempt(ctx, email, ip, success)
+}
+
+// ── Блокировка ────────────────────────────────────────────────────────────────
+
+func (s *Service) BlockUser(ctx context.Context, userID int, reason string) error {
+	return s.repo.BlockUser(ctx, userID, reason)
+}
+
+func (s *Service) UnblockUser(ctx context.Context, userID int) error {
+	return s.repo.UnblockUser(ctx, userID)
+}
+
+func (s *Service) ListUsers(ctx context.Context, search string, blockedOnly bool) ([]models.User, error) {
+	return s.repo.ListUsers(ctx, search, blockedOnly)
+}
+
+// ── Мероприятия (редактирование) ──────────────────────────────────────────────
+
+func (s *Service) UpdateEvent(ctx context.Context, e models.Event) error {
+	return s.repo.UpdateEvent(ctx, e)
+}
+
+func (s *Service) CancelEvent(ctx context.Context, eventID int) error {
+	return s.repo.CancelEvent(ctx, eventID)
+}
+
+func (s *Service) GetEventByID(ctx context.Context, eventID int) (*models.Event, error) {
+	return s.repo.GetEventByID(ctx, eventID)
+}
+
+// ── Баннер мероприятия ────────────────────────────────────────────────────────
+
+func (s *Service) SaveEventBanner(ctx context.Context, eventID int, base64Data string) error {
+	return s.repo.SaveEventBanner(ctx, eventID, base64Data)
+}
+
+func (s *Service) GetEventBanner(ctx context.Context, eventID int) (string, error) {
+	return s.repo.GetEventBanner(ctx, eventID)
+}

@@ -63,10 +63,17 @@ func (h *Handler) Register(r chi.Router) {
 			r.Get("/units/{unitID}/members",  h.unitMembers)
 
 			// Events
-			r.Post("/events",                         h.createEvent)
-			r.Post("/events/{eventID}/register",      h.registerToEvent)
-			r.Post("/events/{eventID}/quotas",        h.setEventQuota)
-			r.Post("/attendance/scan",                h.scanAttendance)
+			r.Post("/events",                             h.createEvent)
+			r.Put("/events/{eventID}",                    h.updateEvent)
+			r.Post("/events/{eventID}/cancel",            h.cancelEvent)
+			r.Post("/events/{eventID}/banner",            h.uploadEventBanner)
+			r.Get("/events/{eventID}/banner",             h.getEventBanner)
+			r.Post("/events/{eventID}/register",          h.registerToEvent)
+			r.Post("/events/{eventID}/quotas",            h.setEventQuota)
+			r.Post("/attendance/scan",                    h.scanAttendance)
+			r.Get("/admin/users",                         h.listUsers)
+			r.Post("/admin/users/{userID}/block",         h.blockUser)
+			r.Post("/admin/users/{userID}/unblock",       h.unblockUser)
 
 			// HQ Staff
 			r.Post("/hq_staff/request",         h.hqStaffRequest)
@@ -162,8 +169,19 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, 400, "invalid json"); return
 	}
+	// Брутфорс: max 5 неудачных попыток за 15 минут
+	ip := r.Header.Get("X-Real-IP")
+	if ip == "" { ip = r.RemoteAddr }
+	if limited, _ := h.svc.IsRateLimited(r.Context(), in.Email, ip); limited {
+		writeError(w, 429, "Слишком много попыток. Подождите 15 минут.")
+		return
+	}
 	acc, ref, err := h.svc.Login(r.Context(), in.Email, in.Password)
-	if err != nil { writeError(w, 401, "Неверный email или пароль"); return }
+	if err != nil {
+		h.svc.RecordLoginAttempt(r.Context(), in.Email, ip, false)
+		writeError(w, 401, "Неверный email или пароль"); return
+	}
+	h.svc.RecordLoginAttempt(r.Context(), in.Email, ip, true)
 	writeJSON(w, 200, map[string]any{"access_token": acc, "refresh_token": ref})
 }
 
@@ -832,6 +850,112 @@ func (h *Handler) reviewPositionRequest(w http.ResponseWriter, r *http.Request) 
 		writeError(w, 500, "review failed"); return
 	}
 	writeJSON(w, 200, map[string]any{"status": "reviewed"})
+}
+
+
+// ── Редактирование мероприятия ────────────────────────────────────────────────
+
+func (h *Handler) updateEvent(w http.ResponseWriter, r *http.Request) {
+	role, _ := r.Context().Value(middleware.RoleKey).(string)
+	if !isAdminRole(role) { writeError(w, 403, "Недостаточно прав"); return }
+	eid, err := strconv.Atoi(chi.URLParam(r, "eventID"))
+	if err != nil { writeError(w, 400, "invalid event id"); return }
+	var in struct {
+		Title             string `json:"title"`
+		Description       string `json:"description"`
+		Location          string `json:"location"`
+		EventDate         string `json:"event_date"`
+		StartTime         string `json:"start_time"`
+		LevelCode         string `json:"level_code"`
+		TypeCode          string `json:"type_code"`
+		ParticipationMode string `json:"participation_mode"`
+		MaxParticipants   *int   `json:"max_participants"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, 400, "invalid json"); return
+	}
+	if in.Title == "" { writeError(w, 400, "title required"); return }
+	err = h.svc.UpdateEvent(r.Context(), models.Event{
+		ID: eid, Title: in.Title, Description: in.Description,
+		Location: in.Location, EventDate: in.EventDate, StartTime: in.StartTime,
+		LevelCode: in.LevelCode, TypeCode: in.TypeCode,
+		ParticipationMode: in.ParticipationMode, MaxParticipants: in.MaxParticipants,
+	})
+	if err != nil { writeError(w, 500, "update failed"); return }
+	writeJSON(w, 200, map[string]any{"status": "updated"})
+}
+
+func (h *Handler) cancelEvent(w http.ResponseWriter, r *http.Request) {
+	role, _ := r.Context().Value(middleware.RoleKey).(string)
+	if !isAdminRole(role) { writeError(w, 403, "Недостаточно прав"); return }
+	eid, err := strconv.Atoi(chi.URLParam(r, "eventID"))
+	if err != nil { writeError(w, 400, "invalid event id"); return }
+	if err := h.svc.CancelEvent(r.Context(), eid); err != nil {
+		writeError(w, 500, "cancel failed"); return
+	}
+	writeJSON(w, 200, map[string]any{"status": "cancelled"})
+}
+
+// ── Баннер мероприятия ────────────────────────────────────────────────────────
+
+func (h *Handler) uploadEventBanner(w http.ResponseWriter, r *http.Request) {
+	role, _ := r.Context().Value(middleware.RoleKey).(string)
+	if !isAdminRole(role) { writeError(w, 403, "Недостаточно прав"); return }
+	eid, err := strconv.Atoi(chi.URLParam(r, "eventID"))
+	if err != nil { writeError(w, 400, "invalid event id"); return }
+	var in struct { Image string `json:"image"` }
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Image == "" {
+		writeError(w, 400, "image required"); return
+	}
+	if err := h.svc.SaveEventBanner(r.Context(), eid, in.Image); err != nil {
+		writeError(w, 500, "save banner failed"); return
+	}
+	writeJSON(w, 200, map[string]any{"status": "saved"})
+}
+
+func (h *Handler) getEventBanner(w http.ResponseWriter, r *http.Request) {
+	eid, err := strconv.Atoi(chi.URLParam(r, "eventID"))
+	if err != nil { writeError(w, 400, "invalid event id"); return }
+	b64, err := h.svc.GetEventBanner(r.Context(), eid)
+	if err != nil { writeError(w, 500, "get banner failed"); return }
+	writeJSON(w, 200, map[string]any{"image": b64})
+}
+
+// ── Управление пользователями (F-19) ─────────────────────────────────────────
+
+func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {
+	role, _ := r.Context().Value(middleware.RoleKey).(string)
+	if !isAdminRole(role) { writeError(w, 403, "Недостаточно прав"); return }
+	search := r.URL.Query().Get("search")
+	blockedOnly := r.URL.Query().Get("blocked") == "true"
+	users, err := h.svc.ListUsers(r.Context(), search, blockedOnly)
+	if err != nil { writeError(w, 500, "list users failed"); return }
+	if users == nil { users = []models.User{} }
+	writeJSON(w, 200, users)
+}
+
+func (h *Handler) blockUser(w http.ResponseWriter, r *http.Request) {
+	role, _ := r.Context().Value(middleware.RoleKey).(string)
+	if !isAdminRole(role) { writeError(w, 403, "Недостаточно прав"); return }
+	userID, err := strconv.Atoi(chi.URLParam(r, "userID"))
+	if err != nil { writeError(w, 400, "invalid user id"); return }
+	var in struct { Reason string `json:"reason"` }
+	_ = json.NewDecoder(r.Body).Decode(&in)
+	if err := h.svc.BlockUser(r.Context(), userID, in.Reason); err != nil {
+		writeError(w, 500, "block failed"); return
+	}
+	writeJSON(w, 200, map[string]any{"status": "blocked"})
+}
+
+func (h *Handler) unblockUser(w http.ResponseWriter, r *http.Request) {
+	role, _ := r.Context().Value(middleware.RoleKey).(string)
+	if !isAdminRole(role) { writeError(w, 403, "Недостаточно прав"); return }
+	userID, err := strconv.Atoi(chi.URLParam(r, "userID"))
+	if err != nil { writeError(w, 400, "invalid user id"); return }
+	if err := h.svc.UnblockUser(r.Context(), userID); err != nil {
+		writeError(w, 500, "unblock failed"); return
+	}
+	writeJSON(w, 200, map[string]any{"status": "unblocked"})
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {

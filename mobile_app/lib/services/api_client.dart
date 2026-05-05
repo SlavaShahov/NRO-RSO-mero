@@ -431,6 +431,74 @@ class ApiClient {
         'position_name':  positionName,
       }, auth: true);
 
+  Future<dynamic> _put(String path, Map<String, dynamic> body, {bool auth = false}) async {
+    final res = await http.put(
+        Uri.parse('$baseUrl$path'),
+        headers: _headers(auth: auth),
+        body: jsonEncode(body));
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      return res.body.isEmpty ? {} : jsonDecode(res.body);
+    }
+    throw ApiException(_extractError(res.body), statusCode: res.statusCode);
+  }
+
+
+  // ── Редактирование мероприятия ────────────────────────────────────────────
+
+  Future<void> updateEvent({
+    required int id,
+    required String title,
+    String description = '',
+    String location = '',
+    required String eventDate,
+    required String startTime,
+    String levelCode = 'regional',
+    String typeCode = 'sport',
+    String participationMode = 'open',
+    int? maxParticipants,
+  }) async {
+    await _put('/api/v1/events/$id', {
+      'title': title, 'description': description, 'location': location,
+      'event_date': eventDate, 'start_time': startTime,
+      'level_code': levelCode, 'type_code': typeCode,
+      'participation_mode': participationMode,
+      if (maxParticipants != null) 'max_participants': maxParticipants,
+    }, auth: true);
+  }
+
+  Future<void> cancelEvent(int id) async {
+    await _post('/api/v1/events/$id/cancel', {}, auth: true);
+  }
+
+  // ── Баннер мероприятия ────────────────────────────────────────────────────
+
+  Future<void> uploadEventBanner(int eventId, String base64Image) async {
+    await _post('/api/v1/events/$eventId/banner', {'image': base64Image}, auth: true);
+  }
+
+  Future<String> getEventBanner(int eventId) async {
+    final res = await _get('/api/v1/events/$eventId/banner', auth: true);
+    return (res['image'] as String?) ?? '';
+  }
+
+  // ── Пользователи (F-19) ───────────────────────────────────────────────────
+
+  Future<List<UserProfile>> listUsers({String search = '', bool blockedOnly = false}) async {
+    final raw = await _rawGet(
+        Uri.parse('$baseUrl/api/v1/admin/users?search=$search&blocked=${blockedOnly ? 'true' : 'false'}'),
+        headers: _headers(auth: true));
+    if (raw is! List) return [];
+    return (raw as List).map((e) => UserProfile.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<void> blockUser(int userId, {String reason = ''}) async {
+    await _post('/api/v1/admin/users/$userId/block', {'reason': reason}, auth: true);
+  }
+
+  Future<void> unblockUser(int userId) async {
+    await _post('/api/v1/admin/users/$userId/unblock', {}, auth: true);
+  }
+
   // ── Private helpers ───────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>> _get(String path, {bool auth = false}) async {
@@ -472,31 +540,6 @@ class ApiClient {
         return _retryAfterRefresh(() async {
           final r2 = await http
               .post(Uri.parse('$baseUrl$path'),
-              headers: _headers(auth: true), body: jsonEncode(body))
-              .timeout(_timeout);
-          return _handle(r2) as Map<String, dynamic>;
-        });
-      }
-      return _handle(res) as Map<String, dynamic>;
-    } on SocketException {
-      throw const ApiException('Нет подключения к серверу.');
-    } on TimeoutException {
-      throw const ApiException('Сервер не отвечает.');
-    }
-  }
-
-  Future<Map<String, dynamic>> _put(
-      String path, Map<String, dynamic> body, {bool auth = false}
-      ) async {
-    try {
-      final res = await http
-          .put(Uri.parse('$baseUrl$path'),
-          headers: _headers(auth: auth), body: jsonEncode(body))
-          .timeout(_timeout);
-      if (res.statusCode == 401 && auth && !_isRefreshing) {
-        return _retryAfterRefresh(() async {
-          final r2 = await http
-              .put(Uri.parse('$baseUrl$path'),
               headers: _headers(auth: true), body: jsonEncode(body))
               .timeout(_timeout);
           return _handle(r2) as Map<String, dynamic>;

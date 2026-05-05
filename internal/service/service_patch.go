@@ -19,7 +19,9 @@ import (
 )
 
 func (s *Service) Me(ctx context.Context, userID int) (models.User, error) {
-	u, err := s.repo.GetUserByID(ctx, userID)
+	// GetUserByIDV2: возвращает правильные positionName и roleCode
+	// (штабная должность из hq_positions если hq_staff.status=approved)
+	u, err := s.repo.GetUserByIDV2(ctx, userID)
 	if err != nil { return u, err }
 	staff, _ := s.repo.GetHQStaffByUser(ctx, userID)
 	if staff != nil {
@@ -72,14 +74,8 @@ func (s *Service) ScanAttendance(ctx context.Context, role string, scannerID int
 
 // DeleteAccount — проверяет пароль, отзывает токен и удаляет аккаунт
 func (s *Service) DeleteAccount(ctx context.Context, userID int, password, accessToken string) error {
-	u, err := s.repo.GetUserByEmail(ctx, func() string {
-		u2, _ := s.repo.GetUserByID(ctx, userID)
-		return u2.Email
-	}())
-	if err != nil {
-		u, err = s.repo.GetUserByID(ctx, userID)
-		if err != nil { return err }
-	}
+	u, err := s.repo.GetUserByIDWithHash(ctx, userID)
+	if err != nil { return err }
 	if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)) != nil {
 		return ErrForbidden
 	}

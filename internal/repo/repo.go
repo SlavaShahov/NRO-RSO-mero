@@ -922,3 +922,129 @@ func (r *Repository) ReviewPositionRequest(ctx context.Context, requestID, revie
 	}
 	return tx.Commit(ctx)
 }
+
+// ─── Брутфорс защита ─────────────────────────────────────────────────────────
+
+// RecordLoginAttempt — записывает попытку входа
+func (r *Repository) RecordLoginAttempt(ctx context.Context, email, ip string, success bool) {
+	_, _ = r.db.Exec(ctx,
+		`INSERT INTO login_attempts (email, ip_address, success) VALUES ($1, $2, $3)`,
+		email, ip, success)
+}
+
+// IsRateLimited — true если за последние 15 минут >= 5 неудачных попыток
+func (r *Repository) IsRateLimited(ctx context.Context, email, ip string) (bool, error) {
+	var cnt int
+	err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM login_attempts
+		WHERE (email=$1 OR ip_address=$2)
+		  AND success=false
+		  AND attempted_at > NOW() - INTERVAL '15 minutes'
+	`, email, ip).Scan(&cnt)
+	return cnt >= 5, err
+}
+
+// ─── Блокировка пользователей ─────────────────────────────────────────────────
+
+func (r *Repository) BlockUser(ctx context.Context, userID int, reason string) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE users SET is_blocked=true, block_reason=$2, updated_at=NOW() WHERE id=$1`,
+		userID, reason)
+	return err
+}
+
+func (r *Repository) UnblockUser(ctx context.Context, userID int) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE users SET is_blocked=false, block_reason=NULL, updated_at=NOW() WHERE id=$1`,
+		userID)
+	return err
+}
+
+// ListUsers — список всех пользователей для администратора
+func (r *Repository) ListUsers(ctx context.Context, search string, blockedOnly bool) ([]models.User, error) {
+	query := userSelect + `
+		WHERE ($1='' OR u.last_name ILIKE '%'||$1||'%' OR u.first_name ILIKE '%'||$1||'%'
+		               OR u.email ILIKE '%'||$1||'%')
+		AND   ($2=false OR u.is_blocked=true)
+		ORDER BY u.last_name, u.first_name LIMIT 200
+	`
+	rows, err := r.db.Query(ctx, query, search, blockedOnly)
+	if err != nil { return nil, err }
+	defer rows.Close()
+	return scanUsers(rows)
+}
+
+// ─── Баннер мероприятия ───────────────────────────────────────────────────────
+
+func (r *Repository) SaveEventBanner(ctx context.Context, eventID int, base64Data string) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE events SET banner_base64=$2 WHERE id=$1`, eventID, base64Data)
+	return err
+}
+
+func (r *Repository) GetEventBanner(ctx context.Context, eventID int) (string, error) {
+	var b64 string
+	err := r.db.QueryRow(ctx,
+		`SELECT COALESCE(banner_base64,'') FROM events WHERE id=$1`, eventID).Scan(&b64)
+	return b64, err
+}
+
+// ─── Редактирование и отмена мероприятий ──────────────────────────────────────
+
+func (r *Repository) UpdateEvent(ctx context.Context, e models.Event) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE events SET
+		    title              = $2,
+		    description        = $3,
+		    location           = NULLIF($4,''),
+		    event_date         = $5,
+		    start_time         = $6,
+		    level_id           = (SELECT id FROM event_levels WHERE code=$7),
+		    type_id            = (SELECT id FROM event_types  WHERE code=$8),
+		    participation_mode = $9,
+		    max_participants   = $10,
+		    updated_at         = NOW()
+		WHERE id=$1
+	`, e.ID, e.Title, e.Description, e.Location,
+		e.EventDate, e.StartTime, e.LevelCode, e.TypeCode,
+		e.ParticipationMode, e.MaxParticipants)
+	return err
+}
+
+func (r *Repository) CancelEvent(ctx context.Context, eventID int) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE events
+		SET status_id = (SELECT id FROM event_statuses WHERE code='cancelled'),
+		    updated_at = NOW()
+		WHERE id = $1
+	`, eventID)
+	return err
+}
+
+func (r *Repository) GetEventByID(ctx context.Context, eventID int) (*models.Event, error) {
+	var e models.Event
+	err := r.db.QueryRow(ctx, `
+		SELECT e.id, e.title, COALESCE(e.description,''),
+		       e.event_date::text, e.start_time::text, COALESCE(e.end_time::text,''),
+		       COALESCE(e.location,''), el.code, et.code, es.code,
+		       COALESCE(e.participation_mode,'open'),
+		       COALESCE(e.is_registration_required,true),
+		       e.max_participants, e.max_spectators, e.created_at,
+		       0, 0, NULL, NULL
+		FROM events e
+		JOIN event_levels   el ON el.id=e.level_id
+		JOIN event_types    et ON et.id=e.type_id
+		JOIN event_statuses es ON es.id=e.status_id
+		WHERE e.id=$1
+	`, eventID).Scan(
+		&e.ID, &e.Title, &e.Description,
+		&e.EventDate, &e.StartTime, &e.EndTime,
+		&e.Location, &e.LevelCode, &e.TypeCode, &e.StatusCode,
+		&e.ParticipationMode, &e.IsRegistrationRequired,
+		&e.MaxParticipants, &e.MaxSpectators, &e.CreatedAt,
+		&e.ParticipantsCount, &e.SpectatorsCount,
+		&e.UserRegistrationStatus, &e.UserParticipationType)
+	if IsNotFound(err) { return nil, nil }
+	if err != nil { return nil, err }
+	return &e, nil
+}

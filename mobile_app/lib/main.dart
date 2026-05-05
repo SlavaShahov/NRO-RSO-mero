@@ -23,7 +23,7 @@ void main() {
 // Android-эмулятор: 10.0.2.2 = хост-машина
 // rso-nsk.ru.tuna.am
 const String _apiHost = 'rso-nsk.ru.tuna.am';
-const int    _apiPort = 8088;
+//const int    _apiPort = 8088;
 
 class RsoApp extends StatelessWidget {
   const RsoApp({super.key});

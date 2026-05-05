@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -17,7 +18,6 @@ class EventDetailScreen extends StatefulWidget {
 
 class _EventDetailScreenState extends State<EventDetailScreen> {
   String? _qrCode;
-  int? _qrLoadedForUserId; // сброс при смене аккаунта
   bool _busy = false;
   bool _loadingQr = false;
   String? _error;
@@ -25,6 +25,39 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   Duration _remaining = Duration.zero;
   bool _timerStarted = false;
   bool _qrLoaded = false;
+  String? _bannerBase64;
+  bool _bannerLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Загружаем баннер один раз при открытии экрана
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final event = ModalRoute.of(context)?.settings.arguments;
+      if (event is EventItem) {
+        // Сначала берём из модели если есть
+        if (event.bannerBase64 != null && event.bannerBase64!.isNotEmpty) {
+          setState(() { _bannerBase64 = event.bannerBase64; _bannerLoaded = true; });
+        } else {
+          _loadBanner(event.id);
+        }
+        _startCountdown(event);
+        if (event.hasRegistration && !_qrLoaded && !_loadingQr) {
+          _loadExistingQr(event.id);
+        }
+      }
+    });
+  }
+
+  Future<void> _loadBanner(int eventId) async {
+    if (_bannerLoaded) return;
+    try {
+      final b = await _api.getEventBanner(eventId);
+      if (mounted) setState(() { _bannerBase64 = b.isNotEmpty ? b : null; _bannerLoaded = true; });
+    } catch (_) {
+      if (mounted) setState(() => _bannerLoaded = true);
+    }
+  }
 
   @override
   void dispose() {
@@ -35,18 +68,13 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   ApiClient get _api => context.read<AuthProvider>().api;
 
   Future<void> _loadExistingQr(int eventId) async {
-    // Сбрасываем если сменился пользователь
-    final currentUserId = context.read<AuthProvider>().user?.id;
-    if (_qrLoaded && _qrLoadedForUserId != currentUserId) {
-      setState(() { _qrCode = null; _qrLoaded = false; _qrLoadedForUserId = null; });
-    }
     if (_qrLoaded || _loadingQr) return;
     setState(() => _loadingQr = true);
     try {
       final regs = await _api.myRegistrations();
-      final reg = regs.where((r) => r.eventId == eventId).firstOrNull;
+      final reg = regs.where((r) => r?.eventId == eventId).firstOrNull;
       if (reg != null && mounted) {
-        setState(() { _qrCode = reg.qrCode; _qrLoaded = true; _qrLoadedForUserId = currentUserId; });
+        setState(() { _qrCode = reg.qrCode; _qrLoaded = true; });
       }
     } catch (_) {}
     finally {
@@ -84,8 +112,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     try {
       final result = await _api.registerToEvent(event.id);
       final qr = result['qr_code'] as String?;
-      final uid = context.read<AuthProvider>().user?.id;
-      if (mounted) setState(() { _qrCode = qr; _qrLoaded = true; _qrLoadedForUserId = uid; });
+      setState(() { _qrCode = qr; _qrLoaded = true; });
       if (mounted) {
         context.read<EventsProvider>()
             .updateEventRegistrationStatus(event.id, 'registered');
@@ -135,6 +162,17 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     }
   }
 
+  Widget _defaultBanner() => Container(
+    height: 200,
+    decoration: const BoxDecoration(
+      gradient: LinearGradient(
+        colors: [Color(0xFF1E3A8A), Color(0xFF3B82F6)],
+        begin: Alignment.topLeft, end: Alignment.bottomRight,
+      ),
+    ),
+    child: const Center(child: Icon(Icons.event, size: 80, color: Colors.white70)),
+  );
+
   @override
   Widget build(BuildContext context) {
     final event = ModalRoute.of(context)?.settings.arguments;
@@ -142,21 +180,12 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       return const Scaffold(body: Center(child: Text('Мероприятие не найдено')));
     }
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _startCountdown(event);
-      if (event.hasRegistration && !_qrLoaded && !_loadingQr) {
-        _loadExistingQr(event.id);
-      }
-    });
-
     final days    = _remaining.inDays;
     final hours   = _remaining.inHours.remainder(24);
     final minutes = _remaining.inMinutes.remainder(60);
     final seconds = _remaining.inSeconds.remainder(60);
 
-    final currentUserId = context.read<AuthProvider>().user?.id;
-    final qrBelongsToCurrentUser = _qrCode != null && _qrLoadedForUserId == currentUserId;
-    final alreadyRegistered = event.hasRegistration || qrBelongsToCurrentUser;
+    final alreadyRegistered = event.hasRegistration || _qrCode != null;
     final isPast            = _isEventPast(event);
 
     // Показываем кнопку регистрации только если:
@@ -174,20 +203,19 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // Баннер
-          Container(
-            height: 200,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              gradient: const LinearGradient(
-                colors: [Color(0xFF1E3A8A), Color(0xFF3B82F6)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: const Center(
-              child: Icon(Icons.event, size: 80, color: Colors.white70),
-            ),
+          // Баннер — загружается в initState, не мигает
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: _bannerBase64 != null && _bannerBase64!.isNotEmpty
+                ? Image.memory(
+              base64Decode(_bannerBase64!),
+              height: 200,
+              width: double.infinity,
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+              errorBuilder: (_, __, ___) => _defaultBanner(),
+            )
+                : _defaultBanner(),
           ),
           const SizedBox(height: 12),
 
