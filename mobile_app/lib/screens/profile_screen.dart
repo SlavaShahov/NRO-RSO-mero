@@ -27,9 +27,9 @@ class _ProfileScreenState extends State<ProfileScreen>
   bool _loadingRegs = false;
   Uint8List? _avatarBytes;
   int? _avatarUserId;
-  // Отслеживаем смену должности/роли — реагируем в build()
+
+  @override
   String? _lastRoleCode;
-  String? _lastPositionName;
 
   @override
   void initState() {
@@ -37,14 +37,27 @@ class _ProfileScreenState extends State<ProfileScreen>
     _tabs = TabController(length: 2, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AuthProvider>().refreshProfile().then((_) {
-        if (!mounted) return;
-        final u = context.read<AuthProvider>().user;
-        _lastRoleCode     = u?.roleCode;
-        _lastPositionName = u?.positionName;
+        _lastRoleCode = context.read<AuthProvider>().user?.roleCode;
         _loadAvatar();
         _loadData();
       });
     });
+  }
+
+  // Вызывается при каждом изменении зависимостей (включая смену роли)
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final currentRole = context.read<AuthProvider>().user?.roleCode;
+    if (_lastRoleCode != null && currentRole != _lastRoleCode) {
+      // Роль изменилась — обновляем всё
+      _lastRoleCode = currentRole;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) { _loadAvatar(); _loadData(); }
+      });
+    } else {
+      _lastRoleCode = currentRole;
+    }
   }
 
   @override
@@ -289,21 +302,6 @@ class _ProfileScreenState extends State<ProfileScreen>
     final user = auth.user;
     if (user == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
-    // Детектируем смену должности/роли через watch (автоматически)
-    final newRole = user.roleCode;
-    final newPos  = user.positionName;
-    if (_lastRoleCode != null &&
-        (newRole != _lastRoleCode || newPos != _lastPositionName)) {
-      _lastRoleCode     = newRole;
-      _lastPositionName = newPos;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) { _loadData(); _loadAvatar(); }
-      });
-    } else {
-      _lastRoleCode     ??= newRole;
-      _lastPositionName ??= newPos;
     }
 
     final upcoming     = _registrations.where((r) => r.isUpcoming).toList();
@@ -1043,7 +1041,7 @@ class _ChangePositionSheetState extends State<ChangePositionSheet> {
       const SizedBox(height: 16),
       _lbl('Штаб'),
       DropdownButtonFormField<HQItem>(
-        initialValue: _selectedHQ,
+        value: _selectedHQ,
         hint: const Text('Выберите штаб'),
         isExpanded: true, decoration: _deco,
         items: _hqs.map((h) => DropdownMenuItem(value: h,
@@ -1061,7 +1059,7 @@ class _ChangePositionSheetState extends State<ChangePositionSheet> {
               child: Center(child: CircularProgressIndicator(strokeWidth: 2)))
         else
           DropdownButtonFormField<UnitItem?>(
-            initialValue: _selectedUnit,
+            value: _selectedUnit,
             hint: const Text('Не указывать'),
             isExpanded: true, decoration: _deco,
             items: [
@@ -1076,7 +1074,7 @@ class _ChangePositionSheetState extends State<ChangePositionSheet> {
         const SizedBox(height: 12),
         _lbl('Должность'),
         DropdownButtonFormField<PositionItem>(
-          initialValue: _selectedPosition,
+          value: _selectedPosition,
           hint: const Text('Выберите должность'),
           isExpanded: true, decoration: _deco,
           items: _positions.map((p) => DropdownMenuItem(
@@ -1090,7 +1088,7 @@ class _ChangePositionSheetState extends State<ChangePositionSheet> {
       ] else ...[
         _lbl('Должность ШСО'),
         DropdownButtonFormField<HQPositionItem>(
-          initialValue: _selectedHQPos,
+          value: _selectedHQPos,
           hint: const Text('Выберите должность ШСО'),
           isExpanded: true, decoration: _deco,
           items: _hqPositions.map((p) => DropdownMenuItem(
