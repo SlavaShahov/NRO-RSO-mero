@@ -54,6 +54,7 @@ func (s *Service) ReviewHQStaffRequest(ctx context.Context,
 	return nil
 }
 
+// ScanAttendance — возвращает полные данные участника включая avatar_url из БД
 func (s *Service) ScanAttendance(ctx context.Context, role string, scannerID int, qrCode string) (*repo.RegistrationInfo, error) {
 	if !isManagerRole(role) { return nil, ErrForbidden }
 	parsed, err := uuid.Parse(qrCode)
@@ -68,10 +69,17 @@ func (s *Service) ScanAttendance(ctx context.Context, role string, scannerID int
 	return info, nil
 }
 
-// DeleteAccount — использует GetUserByIDWithHash (не затирает пароль)
+
+// DeleteAccount — проверяет пароль, отзывает токен и удаляет аккаунт
 func (s *Service) DeleteAccount(ctx context.Context, userID int, password, accessToken string) error {
-	u, err := s.repo.GetUserByIDWithHash(ctx, userID)
-	if err != nil { return err }
+	u, err := s.repo.GetUserByEmail(ctx, func() string {
+		u2, _ := s.repo.GetUserByID(ctx, userID)
+		return u2.Email
+	}())
+	if err != nil {
+		u, err = s.repo.GetUserByID(ctx, userID)
+		if err != nil { return err }
+	}
 	if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)) != nil {
 		return ErrForbidden
 	}
@@ -83,7 +91,7 @@ func (s *Service) DeleteAccount(ctx context.Context, userID int, password, acces
 	return s.repo.DeleteUser(ctx, userID)
 }
 
-// ChangePassword — использует GetUserByIDWithHash (не затирает пароль)
+// ChangePassword — проверяет старый пароль и устанавливает новый
 func (s *Service) ChangePassword(ctx context.Context, userID int, oldPassword, newPassword string) error {
 	u, err := s.repo.GetUserByIDWithHash(ctx, userID)
 	if err != nil { return err }
@@ -95,6 +103,9 @@ func (s *Service) ChangePassword(ctx context.Context, userID int, oldPassword, n
 	return s.repo.UpdatePasswordHash(ctx, userID, string(hash))
 }
 
+
+// ── Генерация кода ────────────────────────────────────────────────────────────
+
 func generateCode() (string, error) {
 	var sb strings.Builder
 	for i := 0; i < 6; i++ {
@@ -104,6 +115,8 @@ func generateCode() (string, error) {
 	}
 	return sb.String(), nil
 }
+
+// ── Верификация email ─────────────────────────────────────────────────────────
 
 func (s *Service) SendVerificationCode(ctx context.Context, userID int, email string) error {
 	code, err := generateCode()
@@ -121,15 +134,17 @@ func (s *Service) VerifyEmail(ctx context.Context, userID int, code string) erro
 	return s.repo.MarkEmailVerified(ctx, userID)
 }
 
+// ── Сброс пароля ──────────────────────────────────────────────────────────────
+
 func (s *Service) SendPasswordResetCode(ctx context.Context, email string) error {
 	email = strings.ToLower(strings.TrimSpace(email))
 	_, err := s.repo.GetUserByEmail(ctx, email)
-	if err != nil { return nil } // не раскрываем что пользователь не найден
+	if err != nil { return nil }
 	code, err := generateCode()
 	if err != nil { return err }
 	if err := s.repo.SavePasswordResetCode(ctx, email, code); err != nil { return err }
 	go s.sendEmail(email, "Сброс пароля РСО",
-		fmt.Sprintf("Код для сброса пароля: %s\n\nКод действителен 15 минут.\nЕсли вы не запрашивали сброс — проигнорируйте это письмо.", code))
+		fmt.Sprintf("Код для сброса пароля: %s\n\nКод действителен 15 минут.", code))
 	return nil
 }
 
@@ -143,6 +158,101 @@ func (s *Service) ResetPassword(ctx context.Context, email, code, newPassword st
 	if err != nil { return err }
 	return s.repo.ResetPassword(ctx, email, string(hash))
 }
+
+// ── Смена email ───────────────────────────────────────────────────────────────
+
+func (s *Service) SendEmailChangeCode(ctx context.Context, userID int, newEmail string) error {
+	newEmail = strings.ToLower(strings.TrimSpace(newEmail))
+	_, err := s.repo.GetUserByEmail(ctx, newEmail)
+	if err == nil { return errors.New("email_duplicate: этот email уже зарегистрирован") }
+	code, err := generateCode()
+	if err != nil { return err }
+	if err := s.repo.SaveEmailChangeCode(ctx, userID, newEmail, code); err != nil { return err }
+	go s.sendEmail(newEmail, "Подтверждение смены email",
+		fmt.Sprintf("Код подтверждения смены email: %s\n\nКод действителен 10 минут.", code))
+	return nil
+}
+
+func (s *Service) ConfirmEmailChange(ctx context.Context, userID int, code string) error {
+	newEmail, err := s.repo.VerifyEmailChangeCode(ctx, userID, code)
+	if err != nil { return err }
+	return s.repo.UpdateEmail(ctx, userID, newEmail)
+}
+
+// ── Смена должности ───────────────────────────────────────────────────────────
+
+var leadershipPositionCodes = []string{"commander", "commissioner", "master"}
+
+func isLeadershipPosition(code string) bool {
+	for _, c := range leadershipPositionCodes {
+		if c == code { return true }
+	}
+	return false
+}
+
+// RequestPositionChange — ВАЖНО: отправляет request_id в уведомление (не user_id!)
+// чтобы кнопки одобрить/отклонить в уведомлении работали корректно.
+func (s *Service) RequestPositionChange(ctx context.Context,
+	userID, newPositionID int, newUnitID *int,
+	positionCode, positionName, unitName, hqName string) (bool, error) {
+	if isLeadershipPosition(positionCode) {
+		// Создаём заявку — получаем request_id
+		requestID, err := s.repo.CreatePositionChangeRequest(ctx, userID, newPositionID, newUnitID)
+		if err != nil { return false, err }
+		u, _ := s.repo.GetUserByID(ctx, userID)
+		applicant := u.LastName + " " + u.FirstName
+		// Формируем текст уведомления
+		unitInfo := ""
+		if unitName != "" { unitInfo += fmt.Sprintf("\n🏠 Отряд: %s", unitName) }
+		if hqName != "" { unitInfo += fmt.Sprintf("\n🏢 Штаб: %s", hqName) }
+		notifBody := fmt.Sprintf("👤 %s запрашивает должность «%s»%s",
+			applicant, positionName, unitInfo)
+		// Отправляем request_id — это ключ для кнопок одобрить/отклонить
+		_ = s.repo.CreateNotificationsForAdmins(ctx, "position_change_request",
+			fmt.Sprintf("📋 Смена должности: %s", positionName),
+			notifBody,
+			map[string]any{"request_id": requestID})
+		return false, nil
+	}
+	// Обычная должность (боец, кандидат) — меняем сразу
+	if err := s.repo.UpdateUserPosition(ctx, userID, newPositionID, newUnitID); err != nil {
+		return false, err
+	}
+	// Если пользователь был штабником — деактивируем hq_staff
+	// иначе roleCode останется hq_staff несмотря на смену должности
+	_ = s.repo.DeactivateHQStaff(ctx, userID)
+	return true, nil
+}
+
+func (s *Service) ReviewPositionRequest(ctx context.Context,
+	requestID, reviewerID int, approved bool, comment string) error {
+	if err := s.repo.ReviewPositionRequest(ctx, requestID, reviewerID, approved, comment); err != nil {
+		return err
+	}
+	// Уведомляем пользователя о результате
+	req, _ := s.repo.GetPositionRequestByID(ctx, requestID)
+	if req != nil {
+		typeCode := "position_change_rejected"
+		title    := "❌ Заявка на смену должности отклонена"
+		body     := fmt.Sprintf("Ваша заявка на должность «%s» была отклонена.", req["position_name"])
+		if approved {
+			typeCode = "position_change_approved"
+			title    = "✅ Должность изменена!"
+			body     = fmt.Sprintf("Ваша должность изменена на «%s».", req["position_name"])
+		}
+		if comment != "" { body += "\nКомментарий: " + comment }
+		userID, _ := req["user_id"].(int)
+		_ = s.repo.CreateNotification(ctx, userID, typeCode, title, body,
+			map[string]any{"request_id": requestID, "approved": approved})
+	}
+	return nil
+}
+
+func (s *Service) ListPendingPositionRequests(ctx context.Context) ([]map[string]any, error) {
+	return s.repo.ListPendingPositionRequests(ctx)
+}
+
+// ── Отправка email ────────────────────────────────────────────────────────────
 
 func (s *Service) sendEmail(to, subject, body string) {
 	if s.cfg.SMTPUser == "" { return }

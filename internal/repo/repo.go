@@ -75,7 +75,7 @@ func (r *Repository) GetUserByID(ctx context.Context, id int) (models.User, erro
 	return u, err
 }
 
-// GetUserByIDWithHash — для смены пароля и удаления аккаунта (возвращает password_hash)
+// GetUserByIDWithHash — для смены/удаления пароля
 func (r *Repository) GetUserByIDWithHash(ctx context.Context, id int) (models.User, error) {
 	return scanUser(r.db.QueryRow(ctx, userSelect+" WHERE u.id=$1", id))
 }
@@ -707,7 +707,9 @@ var ErrPositionTaken   = fmt.Errorf("position already taken")
 var ErrHQPositionTaken = fmt.Errorf("hq position already taken")
 
 func IsNotFound(err error) bool { return err == pgx.ErrNoRows }
-// SaveVerificationCode — сохраняет код подтверждения email (6 цифр, живёт 10 минут)
+
+// ─── Верификация email ────────────────────────────────────────────────────────
+
 func (r *Repository) SaveVerificationCode(ctx context.Context, userID int, code string) error {
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO email_verifications (user_id, code, expires_at)
@@ -718,19 +720,13 @@ func (r *Repository) SaveVerificationCode(ctx context.Context, userID int, code 
 	return err
 }
 
-// VerifyEmailCode — проверяет код, возвращает true если верный и не истёкший
 func (r *Repository) VerifyEmailCode(ctx context.Context, userID int, code string) (bool, error) {
 	var ok bool
-	err := r.db.QueryRow(ctx, `
-		SELECT EXISTS(
-			SELECT 1 FROM email_verifications
-			WHERE user_id=$1 AND code=$2 AND expires_at>NOW()
-		)
-	`, userID, code).Scan(&ok)
+	err := r.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM email_verifications
+		WHERE user_id=$1 AND code=$2 AND expires_at>NOW())`, userID, code).Scan(&ok)
 	return ok, err
 }
 
-// MarkEmailVerified — помечает email как подтверждённый и удаляет код
 func (r *Repository) MarkEmailVerified(ctx context.Context, userID int) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil { return err }
@@ -741,44 +737,188 @@ func (r *Repository) MarkEmailVerified(ctx context.Context, userID int) error {
 	return tx.Commit(ctx)
 }
 
-// SavePasswordResetCode — сохраняет код сброса пароля (живёт 15 минут)
+// ─── Сброс пароля ─────────────────────────────────────────────────────────────
+
 func (r *Repository) SavePasswordResetCode(ctx context.Context, email, code string) error {
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO password_resets (email, code, expires_at)
 		VALUES ($1, $2, NOW() + INTERVAL '15 minutes')
-		ON CONFLICT (email) DO UPDATE
-			SET code=$2, expires_at=NOW() + INTERVAL '15 minutes'
+		ON CONFLICT (email) DO UPDATE SET code=$2, expires_at=NOW() + INTERVAL '15 minutes'
 	`, email, code)
 	return err
 }
 
-// VerifyResetCode — проверяет код сброса пароля
 func (r *Repository) VerifyResetCode(ctx context.Context, email, code string) (bool, error) {
 	var ok bool
-	err := r.db.QueryRow(ctx, `
-		SELECT EXISTS(
-			SELECT 1 FROM password_resets
-			WHERE email=$1 AND code=$2 AND expires_at>NOW()
-		)
-	`, email, code).Scan(&ok)
+	err := r.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM password_resets
+		WHERE email=$1 AND code=$2 AND expires_at>NOW())`, email, code).Scan(&ok)
 	return ok, err
 }
 
-// ResetPassword — устанавливает новый пароль и удаляет код сброса
 func (r *Repository) ResetPassword(ctx context.Context, email, newHash string) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil { return err }
 	defer tx.Rollback(ctx)
-	_, err = tx.Exec(ctx,
-		`UPDATE users SET password_hash=$2, updated_at=NOW() WHERE email=$1`, email, newHash)
+	_, err = tx.Exec(ctx, `UPDATE users SET password_hash=$2, updated_at=NOW() WHERE email=$1`, email, newHash)
 	if err != nil { return err }
 	_, _ = tx.Exec(ctx, `DELETE FROM password_resets WHERE email=$1`, email)
 	return tx.Commit(ctx)
 }
 
-// GetUserIDByEmail — получает ID пользователя по email (для верификации)
-func (r *Repository) GetUserIDByEmail(ctx context.Context, email string) (int, error) {
+// ─── Смена email ──────────────────────────────────────────────────────────────
+
+func (r *Repository) SaveEmailChangeCode(ctx context.Context, userID int, newEmail, code string) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO email_change_requests (user_id, new_email, code, expires_at)
+		VALUES ($1, $2, $3, NOW() + INTERVAL '10 minutes')
+		ON CONFLICT (user_id) DO UPDATE SET new_email=$2, code=$3, expires_at=NOW() + INTERVAL '10 minutes'
+	`, userID, newEmail, code)
+	return err
+}
+
+func (r *Repository) VerifyEmailChangeCode(ctx context.Context, userID int, code string) (string, error) {
+	var newEmail string
+	err := r.db.QueryRow(ctx, `SELECT new_email FROM email_change_requests
+		WHERE user_id=$1 AND code=$2 AND expires_at>NOW()`, userID, code).Scan(&newEmail)
+	if IsNotFound(err) { return "", fmt.Errorf("неверный или истёкший код") }
+	if err != nil { return "", err }
+	r.db.Exec(ctx, `DELETE FROM email_change_requests WHERE user_id=$1`, userID)
+	return newEmail, nil
+}
+
+func (r *Repository) UpdateEmail(ctx context.Context, userID int, newEmail string) error {
+	_, err := r.db.Exec(ctx, `UPDATE users SET email=$2, updated_at=NOW() WHERE id=$1`, userID, newEmail)
+	if err != nil && strings.Contains(err.Error(), "users_email_key") {
+		return fmt.Errorf("email_duplicate: этот email уже зарегистрирован")
+	}
+	return err
+}
+
+// ─── Смена должности ──────────────────────────────────────────────────────────
+
+
+// DeactivateHQStaff — сбрасывает штабную роль при переходе на отрядную должность
+func (r *Repository) DeactivateHQStaff(ctx context.Context, userID int) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE hq_staff
+		SET status = 'rejected',
+		    review_comment = 'Сменил должность на отрядную'
+		WHERE user_id = $1 AND status = 'approved'
+	`, userID)
+	return err
+}
+func (r *Repository) UpdateUserPosition(ctx context.Context, userID, newPositionID int, newUnitID *int) error {
+	if newUnitID != nil {
+		_, err := r.db.Exec(ctx,
+			`UPDATE users SET unit_position_id=$2, unit_id=$3, updated_at=NOW() WHERE id=$1`,
+			userID, newPositionID, *newUnitID)
+		return err
+	}
+	_, err := r.db.Exec(ctx,
+		`UPDATE users SET unit_position_id=$2, updated_at=NOW() WHERE id=$1`,
+		userID, newPositionID)
+	return err
+}
+
+func (r *Repository) CreatePositionChangeRequest(ctx context.Context, userID, newPositionID int, newUnitID *int) (int, error) {
 	var id int
-	err := r.db.QueryRow(ctx, `SELECT id FROM users WHERE email=$1`, email).Scan(&id)
+	err := r.db.QueryRow(ctx, `
+		INSERT INTO position_change_requests
+			(user_id, new_unit_position_id, new_unit_id, status, requested_at)
+		VALUES ($1, $2, $3, 'pending', NOW())
+		ON CONFLICT (user_id) WHERE status = 'pending'
+		DO UPDATE SET
+			new_unit_position_id = EXCLUDED.new_unit_position_id,
+			new_unit_id          = EXCLUDED.new_unit_id,
+			requested_at         = NOW()
+		RETURNING id
+	`, userID, newPositionID, newUnitID).Scan(&id)
 	return id, err
+}
+
+// GetPositionRequestByID — для уведомления после одобрения/отклонения
+func (r *Repository) GetPositionRequestByID(ctx context.Context, requestID int) (map[string]any, error) {
+	var userID, positionID int
+	var positionName, unitName string
+	var unitIDPtr *int
+	err := r.db.QueryRow(ctx, `
+		SELECT pr.user_id, pr.new_unit_position_id,
+			up.name AS position_name,
+			COALESCE(un.name, '') AS unit_name,
+			pr.new_unit_id
+		FROM position_change_requests pr
+		JOIN unit_positions up ON up.id = pr.new_unit_position_id
+		LEFT JOIN units un ON un.id = pr.new_unit_id
+		WHERE pr.id = $1
+	`, requestID).Scan(&userID, &positionID, &positionName, &unitName, &unitIDPtr)
+	if IsNotFound(err) { return nil, nil }
+	if err != nil { return nil, err }
+	return map[string]any{
+		"user_id":       userID,
+		"position_id":   positionID,
+		"position_name": positionName,
+		"unit_name":     unitName,
+		"unit_id":       unitIDPtr,
+	}, nil
+}
+
+func (r *Repository) ListPendingPositionRequests(ctx context.Context) ([]map[string]any, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT pr.id, pr.user_id,
+			u.last_name||' '||u.first_name AS full_name,
+			COALESCE(up_old.name,'—') AS old_position,
+			up_new.name AS new_position,
+			COALESCE(un.name,'—') AS new_unit,
+			pr.status, pr.requested_at::text
+		FROM position_change_requests pr
+		JOIN users u ON u.id=pr.user_id
+		LEFT JOIN unit_positions up_old ON up_old.id=u.unit_position_id
+		JOIN unit_positions up_new ON up_new.id=pr.new_unit_position_id
+		LEFT JOIN units un ON un.id=pr.new_unit_id
+		WHERE pr.status='pending'
+		ORDER BY pr.requested_at
+	`)
+	if err != nil { return nil, err }
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var id, userID int
+		var fullName, oldPos, newPos, newUnit, status, requestedAt string
+		if err := rows.Scan(&id, &userID, &fullName, &oldPos, &newPos,
+			&newUnit, &status, &requestedAt); err != nil { return nil, err }
+		result = append(result, map[string]any{
+			"id": id, "user_id": userID, "full_name": fullName,
+			"old_position": oldPos, "new_position": newPos,
+			"new_unit": newUnit, "status": status, "requested_at": requestedAt,
+		})
+	}
+	return result, nil
+}
+
+// ReviewPositionRequest — обновляет статус и при одобрении сразу меняет должность
+func (r *Repository) ReviewPositionRequest(ctx context.Context, requestID, reviewerID int, approved bool, comment string) error {
+	status := "rejected"
+	if approved { status = "approved" }
+	tx, err := r.db.Begin(ctx)
+	if err != nil { return err }
+	defer tx.Rollback(ctx)
+	_, err = tx.Exec(ctx, `
+		UPDATE position_change_requests
+		SET status=$2, reviewed_by=$3, review_comment=$4, reviewed_at=NOW()
+		WHERE id=$1
+	`, requestID, status, reviewerID, comment)
+	if err != nil { return err }
+	if approved {
+		// Немедленно применяем новую должность
+		_, err = tx.Exec(ctx, `
+			UPDATE users u
+			SET unit_position_id = pr.new_unit_position_id,
+			    unit_id          = COALESCE(pr.new_unit_id, u.unit_id),
+			    updated_at       = NOW()
+			FROM position_change_requests pr
+			WHERE pr.id = $1 AND u.id = pr.user_id
+		`, requestID)
+		if err != nil { return err }
+	}
+	return tx.Commit(ctx)
 }

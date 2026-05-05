@@ -36,13 +36,9 @@ func (h *Handler) Register(r chi.Router) {
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// Публичные
-		r.Post("/auth/register",        h.register)
-		r.Post("/auth/login",           h.login)
-		r.Post("/auth/refresh",         h.refresh)
-		r.Post("/auth/verify-email",    h.verifyEmail)
-		r.Post("/auth/resend-code",     h.resendVerificationCode)
-		r.Post("/auth/forgot-password", h.forgotPassword)
-		r.Post("/auth/reset-password",  h.resetPassword)
+		r.Post("/auth/register",  h.register)
+		r.Post("/auth/login",     h.login)
+		r.Post("/auth/refresh",   h.refresh)
 		r.Get("/events",          h.listEvents)
 		r.Get("/hqs",             h.listHQs)
 		r.Get("/hqs/{hqID}/units", h.listUnits)
@@ -79,6 +75,11 @@ func (h *Handler) Register(r chi.Router) {
 			r.Get("/hq_staff/check_position",   h.hqStaffCheckPosition)
 			r.Put("/me/password",               h.changePassword)
 			r.Delete("/me",                     h.deleteAccount)
+			r.Post("/me/email/change",          h.requestEmailChange)
+			r.Post("/me/email/confirm",         h.confirmEmailChange)
+			r.Post("/me/position/change",       h.requestPositionChange)
+			r.Get("/admin/position-requests",   h.listPositionRequests)
+			r.Post("/admin/position-requests/{id}/review", h.reviewPositionRequest)
 			r.Post("/me/avatar",                h.uploadAvatar)
 			r.Get("/me/avatar",                 h.getAvatar)
 
@@ -454,8 +455,10 @@ func (h *Handler) hqStaffRequest(w http.ResponseWriter, r *http.Request) {
 	uid, ok := r.Context().Value(middleware.UserIDKey).(int)
 	if !ok { writeError(w, 401, "unauthorized"); return }
 	var in struct {
-		HQID       int `json:"hq_id"`
-		PositionID int `json:"hq_position_id"`
+		HQID         int    `json:"hq_id"`
+		PositionID   int    `json:"hq_position_id"`
+		HQName       string `json:"hq_name"`
+		PositionName string `json:"position_name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.HQID == 0 || in.PositionID == 0 {
 		writeError(w, 400, "hq_id and hq_position_id are required"); return
@@ -463,16 +466,18 @@ func (h *Handler) hqStaffRequest(w http.ResponseWriter, r *http.Request) {
 	reqID, err := h.svc.CreateHQStaffRequest(r.Context(), uid, in.HQID, in.PositionID)
 	if err != nil { writeError(w, 500, "request failed"); return }
 
-	// Уведомляем администраторов
 	u, _ := h.svc.Me(r.Context(), uid)
-	body := "👤 " + u.LastName + " " + u.FirstName
-	if u.Phone != "" { body += "\n📞 " + u.Phone }
-	if u.MemberCardNumber != "" { body += "\n🪪 Билет № " + u.MemberCardNumber }
-	go func(bgCtx context.Context, rID int, b string) {
-		_ = h.svc.NotifyAdmins(bgCtx, "hq_staff_request",
-			"📋 Новая заявка на должность ШСО", b,
+	applicant := u.LastName + " " + u.FirstName
+	notifBody := fmt.Sprintf("👤 %s\n🏢 Штаб: %s\n💼 Должность: %s",
+		applicant, in.HQName, in.PositionName)
+	if u.Phone != "" { notifBody += "\n📞 " + u.Phone }
+	if u.MemberCardNumber != "" { notifBody += "\n🪪 Билет № " + u.MemberCardNumber }
+	notifTitle := fmt.Sprintf("📋 Заявка ШСО: %s в %s", in.PositionName, in.HQName)
+	if notifTitle == "📋 Заявка ШСО:  в " { notifTitle = "📋 Новая заявка на должность ШСО" }
+	go func(bgCtx context.Context, rID int, title, b string) {
+		_ = h.svc.NotifyAdmins(bgCtx, "hq_staff_request", title, b,
 			map[string]any{"request_id": rID})
-	}(context.Background(), reqID, body)
+	}(context.Background(), reqID, notifTitle, notifBody)
 
 	writeJSON(w, 201, map[string]any{"request_id": reqID, "status": "pending"})
 }
@@ -625,7 +630,7 @@ func (h *Handler) sendParticipantsEmail(ctx context.Context, eventID int) {
 			LastName:     r.LastName,
 			FirstName:    r.FirstName,
 			MiddleName:   r.MiddleName,
-			Institution:  strings.TrimPrefix(r.HqName, "ШСО "),
+			Institution:  r.HqName,
 			UnitName:     r.UnitName,
 			PositionName: r.PositionName,
 			PositionCode: r.PositionCode,
@@ -739,66 +744,94 @@ func (h *Handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 
-// ── Email verification ────────────────────────────────────────────────────────
+// ── Email change ──────────────────────────────────────────────────────────────
 
-func (h *Handler) verifyEmail(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		UserID int    `json:"user_id"`
-		Code   string `json:"code"`
+func (h *Handler) requestEmailChange(w http.ResponseWriter, r *http.Request) {
+	uid, ok := r.Context().Value(middleware.UserIDKey).(int)
+	if !ok { writeError(w, 401, "unauthorized"); return }
+	var in struct { NewEmail string `json:"new_email"` }
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.NewEmail == "" {
+		writeError(w, 400, "new_email required"); return
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Code == "" || in.UserID == 0 {
-		writeError(w, 400, "user_id и code обязательны"); return
-	}
-	if err := h.svc.VerifyEmail(r.Context(), in.UserID, in.Code); err != nil {
-		writeError(w, 400, err.Error()); return
-	}
-	writeJSON(w, 200, map[string]any{"status": "email verified"})
-}
-
-func (h *Handler) resendVerificationCode(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		UserID int    `json:"user_id"`
-		Email  string `json:"email"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.UserID == 0 || in.Email == "" {
-		writeError(w, 400, "user_id и email обязательны"); return
-	}
-	if err := h.svc.SendVerificationCode(r.Context(), in.UserID, in.Email); err != nil {
-		writeError(w, 500, "send failed"); return
+	if err := h.svc.SendEmailChangeCode(r.Context(), uid, in.NewEmail); err != nil {
+		if strings.HasPrefix(err.Error(), "email_duplicate:") {
+			writeError(w, 409, strings.TrimPrefix(err.Error(), "email_duplicate: "))
+		} else {
+			writeError(w, 500, "send failed")
+		}
+		return
 	}
 	writeJSON(w, 200, map[string]any{"status": "code sent"})
 }
 
-// ── Forgot / Reset password ───────────────────────────────────────────────────
-
-func (h *Handler) forgotPassword(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Email string `json:"email"`
+func (h *Handler) confirmEmailChange(w http.ResponseWriter, r *http.Request) {
+	uid, ok := r.Context().Value(middleware.UserIDKey).(int)
+	if !ok { writeError(w, 401, "unauthorized"); return }
+	var in struct { Code string `json:"code"` }
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Code == "" {
+		writeError(w, 400, "code required"); return
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Email == "" {
-		writeError(w, 400, "email обязателен"); return
-	}
-	if err := h.svc.SendPasswordResetCode(r.Context(), in.Email); err != nil {
+	if err := h.svc.ConfirmEmailChange(r.Context(), uid, in.Code); err != nil {
 		writeError(w, 400, err.Error()); return
 	}
-	// Не раскрываем существует ли пользователь
-	writeJSON(w, 200, map[string]any{"status": "если email зарегистрирован — код отправлен"})
+	writeJSON(w, 200, map[string]any{"status": "email changed"})
 }
 
-func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
+// ── Position change ───────────────────────────────────────────────────────────
+
+func (h *Handler) requestPositionChange(w http.ResponseWriter, r *http.Request) {
+	uid, ok := r.Context().Value(middleware.UserIDKey).(int)
+	if !ok { writeError(w, 401, "unauthorized"); return }
 	var in struct {
-		Email       string `json:"email"`
-		Code        string `json:"code"`
-		NewPassword string `json:"new_password"`
+		PositionID   int    `json:"position_id"`
+		PositionCode string `json:"position_code"`
+		PositionName string `json:"position_name"`
+		UnitName     string `json:"unit_name"`
+		HQName       string `json:"hq_name"`
+		UnitID       *int   `json:"unit_id,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil ||
-		in.Email == "" || in.Code == "" || in.NewPassword == "" {
-		writeError(w, 400, "email, code и new_password обязательны"); return
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.PositionID == 0 {
+		writeError(w, 400, "position_id required"); return
 	}
-	if err := h.svc.ResetPassword(r.Context(), in.Email, in.Code, in.NewPassword); err != nil {
-		writeError(w, 400, err.Error()); return
+	applied, err := h.svc.RequestPositionChange(r.Context(),
+		uid, in.PositionID, in.UnitID, in.PositionCode, in.PositionName, in.UnitName, in.HQName)
+	if err != nil { writeError(w, 500, "request failed"); return }
+	if applied {
+		writeJSON(w, 200, map[string]any{"status": "applied"})
+	} else {
+		writeJSON(w, 200, map[string]any{
+			"status":  "pending_review",
+			"message": fmt.Sprintf("Заявка на должность «%s» отправлена администратору", in.PositionName),
+		})
 	}
-	writeJSON(w, 200, map[string]any{"status": "пароль изменён"})
+}
+
+func (h *Handler) listPositionRequests(w http.ResponseWriter, r *http.Request) {
+	role, _ := r.Context().Value(middleware.RoleKey).(string)
+	if !isAdminRole(role) { writeError(w, 403, "Недостаточно прав"); return }
+	reqs, err := h.svc.ListPendingPositionRequests(r.Context())
+	if err != nil { writeError(w, 500, "fetch failed"); return }
+	if reqs == nil { reqs = []map[string]any{} }
+	writeJSON(w, 200, reqs)
+}
+
+func (h *Handler) reviewPositionRequest(w http.ResponseWriter, r *http.Request) {
+	reviewerID, _ := r.Context().Value(middleware.UserIDKey).(int)
+	role, _ := r.Context().Value(middleware.RoleKey).(string)
+	if !isAdminRole(role) { writeError(w, 403, "Недостаточно прав"); return }
+	reqID, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil { writeError(w, 400, "invalid id"); return }
+	var in struct {
+		Approved bool   `json:"approved"`
+		Comment  string `json:"comment"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, 400, "invalid body"); return
+	}
+	if err := h.svc.ReviewPositionRequest(r.Context(), reqID, reviewerID, in.Approved, in.Comment); err != nil {
+		writeError(w, 500, "review failed"); return
+	}
+	writeJSON(w, 200, map[string]any{"status": "reviewed"})
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {

@@ -52,9 +52,11 @@ class _PushService {
 }
 
 class NotificationsProvider extends ChangeNotifier {
-  NotificationsProvider({required this.api});
+  NotificationsProvider({required this.api, this.onProfileChanged});
 
   final ApiClient api;
+  /// Колбэк для обновления профиля при одобрении заявки на должность
+  final Future<void> Function()? onProfileChanged;
   final _push = _PushService();
 
   List<AppNotification> notifications = [];
@@ -62,8 +64,8 @@ class NotificationsProvider extends ChangeNotifier {
   bool loading = false;
   String? error;
 
-  // ID уведомлений для которых уже показали системный push
-  final Set<int> _shownIds = {};
+  final Set<int> _shownIds = {};     // уже показали push
+  final Set<int> _appliedRoles = {}; // уже применили обновление профиля
   Timer? _timer;
 
   /// Инициализируем push и запускаем polling каждые 30 секунд
@@ -106,18 +108,28 @@ class NotificationsProvider extends ChangeNotifier {
     try {
       final raw = await api.listNotifications();
       bool hasNew = false;
+      bool needProfileRefresh = false;
       for (final n in raw) {
-        // Если это новое непрочитанное уведомление — показываем системный push
+        // Push только для новых непрочитанных
         if (!n.isRead && !_shownIds.contains(n.id)) {
           _shownIds.add(n.id);
           hasNew = true;
-          // Показываем системное уведомление на телефоне
           await _push.show(n.id, n.title, n.body);
         }
+        // Обновляем профиль при ЛЮБОМ непрочитанном approval
+        // (независимо от _shownIds — уведомление могло быть уже показано)
+        if (!n.isRead &&
+            (n.typeCode == 'position_change_approved' ||
+                n.typeCode == 'hq_staff_approved') &&
+            !_appliedRoles.contains(n.id)) {
+          _appliedRoles.add(n.id);
+          needProfileRefresh = true;
+        }
       }
+      if (needProfileRefresh) await onProfileChanged?.call();
       notifications = raw;
       unreadCount = raw.where((n) => !n.isRead).length;
-      if (hasNew) notifyListeners();
+      if (hasNew || needProfileRefresh) notifyListeners();
     } catch (_) {}
   }
 

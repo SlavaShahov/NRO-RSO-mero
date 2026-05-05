@@ -47,6 +47,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 
   HQItem?         _selectedHQ;
   UnitItem?       _selectedUnit;
+  UnitItem?       _selectedUnitHQ;    // линейный отряд штабника (необязательно)
   PositionItem?   _selectedPosition;
   HQPositionItem? _selectedHQPosition;
 
@@ -102,6 +103,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     setState(() {
       _selectedHQ = hq;
       _selectedUnit = null;
+      _selectedUnitHQ = null;
       _units = [];
       _loadingUnits = hq != null;
     });
@@ -230,7 +232,9 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         phone:               _phone.text.trim(),
         memberCardNumber:    _cardLocation == 'with_user' ? _memberCard.text.trim() : '',
         memberCardLocation:  _cardLocation,
-        unitId:              _regType == _RegType.fighter ? _selectedUnit?.id : null,
+        unitId:              _regType == _RegType.fighter
+            ? _selectedUnit?.id
+            : _selectedUnitHQ?.id, // штабник может указать свой линейный отряд
         unitPositionId:      _regType == _RegType.fighter ? _selectedPosition?.id : null,
         hqId:                _selectedHQ?.id,
         hqPositionId:        _regType == _RegType.hqStaff ? _selectedHQPosition?.id : null,
@@ -390,6 +394,37 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                   value: p, child: Text(p.name))).toList(),
               onChanged: _busy ? null : (p) => setState(() => _selectedHQPosition = p),
             ),
+            const SizedBox(height: 12),
+            // Штабник может дополнительно указать линейный отряд
+            const Text('Линейный отряд (необязательно)',
+                style: TextStyle(fontSize: 14)),
+            const SizedBox(height: 6),
+            if (_loadingUnits)
+              const Center(child: CircularProgressIndicator())
+            else
+              _drop<UnitItem>(
+                value: _selectedUnitHQ,
+                hint: _selectedHQ == null
+                    ? 'Сначала выберите штаб'
+                    : _units.isEmpty
+                    ? 'В этом штабе нет отрядов'
+                    : 'Не состою в линейном отряде',
+                items: [
+                  // Пункт "Не указывать"
+                  const DropdownMenuItem<UnitItem>(
+                    value: null,
+                    child: Text('Не состою в отряде',
+                        style: TextStyle(color: Colors.black45)),
+                  ),
+                  ..._units.map((u) => DropdownMenuItem(
+                      value: u,
+                      child: Text(u.name,
+                          overflow: TextOverflow.ellipsis))),
+                ],
+                onChanged: (_busy || _selectedHQ == null)
+                    ? null
+                    : (u) => setState(() => _selectedUnitHQ = u),
+              ),
           ],
 
           if (_error != null)

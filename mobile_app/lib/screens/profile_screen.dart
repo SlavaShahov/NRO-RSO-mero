@@ -27,6 +27,9 @@ class _ProfileScreenState extends State<ProfileScreen>
   bool _loadingRegs = false;
   Uint8List? _avatarBytes;
   int? _avatarUserId;
+  // Отслеживаем смену должности/роли — реагируем в build()
+  String? _lastRoleCode;
+  String? _lastPositionName;
 
   @override
   void initState() {
@@ -34,6 +37,10 @@ class _ProfileScreenState extends State<ProfileScreen>
     _tabs = TabController(length: 2, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AuthProvider>().refreshProfile().then((_) {
+        if (!mounted) return;
+        final u = context.read<AuthProvider>().user;
+        _lastRoleCode     = u?.roleCode;
+        _lastPositionName = u?.positionName;
         _loadAvatar();
         _loadData();
       });
@@ -141,37 +148,37 @@ class _ProfileScreenState extends State<ProfileScreen>
         title: const Text('Смена пароля'),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
           TextField(controller: oldPwC, obscureText: true,
-            decoration: const InputDecoration(labelText: 'Текущий пароль', border: OutlineInputBorder())),
+              decoration: const InputDecoration(labelText: 'Текущий пароль', border: OutlineInputBorder())),
           const SizedBox(height: 10),
           TextField(controller: newPwC, obscureText: true,
-            decoration: const InputDecoration(labelText: 'Новый пароль (мин. 8)', border: OutlineInputBorder())),
+              decoration: const InputDecoration(labelText: 'Новый пароль (мин. 8)', border: OutlineInputBorder())),
           const SizedBox(height: 10),
           TextField(controller: confC, obscureText: true,
-            decoration: const InputDecoration(labelText: 'Повторите новый пароль', border: OutlineInputBorder())),
+              decoration: const InputDecoration(labelText: 'Повторите новый пароль', border: OutlineInputBorder())),
         ]),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
           TextButton(onPressed: () => Navigator.pop(context, true),
-            child: const Text('Сохранить', style: TextStyle(fontWeight: FontWeight.bold))),
+              child: const Text('Сохранить', style: TextStyle(fontWeight: FontWeight.bold))),
         ],
       ),
     );
     if (ok != true || !mounted) return;
     if (newPwC.text.length < 8) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Новый пароль: минимум 8 символов')));
+          const SnackBar(content: Text('Новый пароль: минимум 8 символов')));
       return;
     }
     if (newPwC.text != confC.text) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Пароли не совпадают')));
+          const SnackBar(content: Text('Пароли не совпадают')));
       return;
     }
     try {
       await widget.api.changePassword(
           oldPassword: oldPwC.text, newPassword: newPwC.text);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Пароль успешно изменён')));
+          const SnackBar(content: Text('Пароль успешно изменён')));
     } on ApiException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.message), backgroundColor: Colors.red));
@@ -187,17 +194,17 @@ class _ProfileScreenState extends State<ProfileScreen>
         title: const Text('Удалить аккаунт?'),
         content: Column(mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Это действие необратимо.\nВсе данные и регистрации будут удалены.',
-              style: TextStyle(color: Colors.black87)),
-          const SizedBox(height: 14),
-          TextField(controller: pwC, obscureText: true,
-            decoration: const InputDecoration(labelText: 'Пароль для подтверждения', border: OutlineInputBorder())),
-        ]),
+              const Text('Это действие необратимо.\nВсе данные и регистрации будут удалены.',
+                  style: TextStyle(color: Colors.black87)),
+              const SizedBox(height: 14),
+              TextField(controller: pwC, obscureText: true,
+                  decoration: const InputDecoration(labelText: 'Пароль для подтверждения', border: OutlineInputBorder())),
+            ]),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
           TextButton(onPressed: () => Navigator.pop(context, true),
-            child: const Text('Удалить',
-                style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
+              child: const Text('Удалить',
+                  style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
         ],
       ),
     );
@@ -235,8 +242,9 @@ class _ProfileScreenState extends State<ProfileScreen>
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => _EditProfileSheet(
+      builder: (ctx) => _EditProfileSheet(
         user: user,
+        api: widget.api,
         onSave: (last, first, mid, phone, cardNum, cardLoc) async {
           await context.read<AuthProvider>().updateProfile(
               lastName: last, firstName: first, middleName: mid, phone: phone,
@@ -279,11 +287,27 @@ class _ProfileScreenState extends State<ProfileScreen>
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final user = auth.user;
-    if (user == null)
+    if (user == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
-    final upcoming     = _registrations.where((r) => r!.isUpcoming).toList();
-    final attended      = _registrations.where((r) => r!.isAttended).toList();
+    // Детектируем смену должности/роли через watch (автоматически)
+    final newRole = user.roleCode;
+    final newPos  = user.positionName;
+    if (_lastRoleCode != null &&
+        (newRole != _lastRoleCode || newPos != _lastPositionName)) {
+      _lastRoleCode     = newRole;
+      _lastPositionName = newPos;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) { _loadData(); _loadAvatar(); }
+      });
+    } else {
+      _lastRoleCode     ??= newRole;
+      _lastPositionName ??= newPos;
+    }
+
+    final upcoming     = _registrations.where((r) => r.isUpcoming).toList();
+    final attended      = _registrations.where((r) => r.isAttended).toList();
     final totalAttended = _portfolio?['attended'] as int? ?? attended.length;
     final totalUpcoming = _portfolio?['upcoming'] as int? ?? upcoming.length;
 
@@ -304,14 +328,14 @@ class _ProfileScreenState extends State<ProfileScreen>
               IconButton(icon: const Icon(Icons.edit_outlined),
                   tooltip: 'Редактировать', onPressed: _openEdit),
               IconButton(
-                icon: const Icon(Icons.lock_reset_outlined),
-                tooltip: 'Сменить пароль',
-                onPressed: _changePassword),
+                  icon: const Icon(Icons.lock_reset_outlined),
+                  tooltip: 'Сменить пароль',
+                  onPressed: _changePassword),
               IconButton(
-                icon: const Icon(Icons.delete_outline),
-                tooltip: 'Удалить аккаунт',
-                color: Colors.red.shade300,
-                onPressed: _deleteAccount),
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: 'Удалить аккаунт',
+                  color: Colors.red.shade300,
+                  onPressed: _deleteAccount),
               IconButton(icon: const Icon(Icons.logout),
                   tooltip: 'Выйти', onPressed: _logout),
             ],
@@ -330,10 +354,10 @@ class _ProfileScreenState extends State<ProfileScreen>
                             ? MemoryImage(_avatarBytes!) : null,
                         child: _avatarBytes == null
                             ? Text(
-                                user.firstName.isNotEmpty
-                                    ? user.firstName[0].toUpperCase() : '?',
-                                style: const TextStyle(fontSize: 38,
-                                    color: Colors.white, fontWeight: FontWeight.bold))
+                            user.firstName.isNotEmpty
+                                ? user.firstName[0].toUpperCase() : '?',
+                            style: const TextStyle(fontSize: 38,
+                                color: Colors.white, fontWeight: FontWeight.bold))
                             : null,
                       ),
                       Positioned(right: -2, bottom: -2,
@@ -357,10 +381,10 @@ class _ProfileScreenState extends State<ProfileScreen>
                         color: Colors.white.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(20)),
                     child: Text(
-                      user.unitName.isNotEmpty
-                          ? '${user.unitName}, ${user.positionName}'
-                          : user.positionName.isNotEmpty ? user.positionName : 'Боец',
-                      style: const TextStyle(color: Colors.white, fontSize: 12)),
+                        user.unitName.isNotEmpty
+                            ? '${user.unitName}, ${user.positionName}'
+                            : user.positionName.isNotEmpty ? user.positionName : 'Боец',
+                        style: const TextStyle(color: Colors.white, fontSize: 12)),
                   ),
                   const SizedBox(height: 16),
                 ]),
@@ -530,7 +554,7 @@ class _StatCard extends StatelessWidget {
 
 class _RegList extends StatelessWidget {
   const _RegList({required this.regs, required this.loading,
-      required this.emptyText, required this.onQR});
+    required this.emptyText, required this.onQR});
   final List<MyRegistration> regs; final bool loading;
   final String emptyText; final void Function(MyRegistration) onQR;
   @override
@@ -564,15 +588,15 @@ class _TicketCard extends StatelessWidget {
             style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
         if (reg.location.isNotEmpty)
           Text(reg.location, style: const TextStyle(color: Colors.black54, fontSize: 13)),
-        if (reg!.isAttended)
+        if (reg.isAttended)
           Padding(padding: const EdgeInsets.only(top: 6),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(color: Colors.green.shade50,
-                  borderRadius: BorderRadius.circular(6)),
-              child: Text('Посетил', style: TextStyle(color: Colors.green.shade700,
-                  fontSize: 12, fontWeight: FontWeight.w600)),
-            )),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(6)),
+                child: Text('Посетил', style: TextStyle(color: Colors.green.shade700,
+                    fontSize: 12, fontWeight: FontWeight.w600)),
+              )),
       ])),
       const SizedBox(width: 12),
       InkWell(onTap: onQR, borderRadius: BorderRadius.circular(8),
@@ -583,8 +607,8 @@ class _TicketCard extends StatelessWidget {
                 border: Border.all(color: Colors.black12)),
             child: reg.qrCode.isNotEmpty
                 ? ClipRRect(borderRadius: BorderRadius.circular(7),
-                    child: QrImageView(data: reg.qrCode, size: 72,
-                        backgroundColor: Colors.white))
+                child: QrImageView(data: reg.qrCode, size: 72,
+                    backgroundColor: Colors.white))
                 : const Icon(Icons.qr_code, color: Colors.black26, size: 32),
           ),
           const SizedBox(height: 4),
@@ -609,8 +633,9 @@ class _TabDelegate extends SliverPersistentHeaderDelegate {
 // ── Редактирование ────────────────────────────────────────────────────────────
 
 class _EditProfileSheet extends StatefulWidget {
-  const _EditProfileSheet({required this.user, required this.onSave});
+  const _EditProfileSheet({required this.user, required this.onSave, required this.api});
   final UserProfile user;
+  final ApiClient api;
   final Future<void> Function(String, String, String, String, String, String) onSave;
   @override State<_EditProfileSheet> createState() => _EditProfileSheetState();
 }
@@ -699,10 +724,36 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
             child: Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 13))),
       SizedBox(width: double.infinity,
         child: ElevatedButton(onPressed: _busy ? null : _save,
-          child: _busy
-              ? const SizedBox(height: 20, width: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-              : const Text('Сохранить')),
+            child: _busy
+                ? const SizedBox(height: 20, width: 20,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Text('Сохранить')),
+      ),
+      const SizedBox(height: 8),
+      SizedBox(width: double.infinity,
+        child: OutlinedButton.icon(
+            icon: const Icon(Icons.email_outlined, size: 18),
+            label: const Text('Сменить email'),
+            onPressed: () {
+              Navigator.pop(context);
+              showModalBottomSheet(context: context, isScrollControlled: true,
+                  shape: const RoundedRectangleBorder(
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+                  builder: (_) => ChangeEmailSheet(api: widget.api, userId: widget.user.id));
+            }),
+      ),
+      const SizedBox(height: 8),
+      SizedBox(width: double.infinity,
+        child: OutlinedButton.icon(
+            icon: const Icon(Icons.work_outline, size: 18),
+            label: const Text('Сменить должность'),
+            onPressed: () {
+              Navigator.pop(context);
+              showModalBottomSheet(context: context, isScrollControlled: true,
+                  shape: const RoundedRectangleBorder(
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+                  builder: (_) => ChangePositionSheet(api: widget.api, user: widget.user));
+            }),
       ),
     ]),
   );
@@ -727,9 +778,375 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
       TextCapitalization cap, {TextInputType? type}) => Padding(
     padding: const EdgeInsets.only(bottom: 10),
     child: TextField(controller: ctrl, textCapitalization: cap, keyboardType: type,
-      decoration: InputDecoration(labelText: label,
-        border: const OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(10))),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12))),
+        decoration: InputDecoration(labelText: label,
+            border: const OutlineInputBorder(
+                borderRadius: BorderRadius.all(Radius.circular(10))),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12))),
+  );
+}
+
+// ── Смена email ───────────────────────────────────────────────────────────────
+
+class ChangeEmailSheet extends StatefulWidget {
+  const ChangeEmailSheet({super.key, required this.api, required this.userId});
+  final ApiClient api;
+  final int userId;
+  @override State<ChangeEmailSheet> createState() => _ChangeEmailSheetState();
+}
+
+class _ChangeEmailSheetState extends State<ChangeEmailSheet> {
+  final _emailC = TextEditingController();
+  final _codeC  = TextEditingController();
+  int _step = 1;
+  bool _busy = false;
+  String? _error, _info;
+  int _cooldown = 0;
+
+  @override void dispose() { _emailC.dispose(); _codeC.dispose(); super.dispose(); }
+
+  void _startCooldown() {
+    Future.doWhile(() async {
+      if (!mounted || _cooldown <= 0) return false;
+      await Future.delayed(const Duration(seconds: 1));
+      if (!mounted) return false;
+      setState(() => _cooldown--);
+      return _cooldown > 0;
+    });
+  }
+
+  Future<void> _sendCode() async {
+    final email = _emailC.text.trim().toLowerCase();
+    if (email.isEmpty) { setState(() => _error = 'Введите новый email'); return; }
+    setState(() { _busy = true; _error = null; });
+    try {
+      await widget.api.requestEmailChange(newEmail: email);
+      if (!mounted) return;
+      setState(() { _step = 2; _info = 'Код отправлен на $email'; _cooldown = 60; });
+      _startCooldown();
+    } on ApiException catch (e) { setState(() => _error = e.message); }
+    finally { if (mounted) setState(() => _busy = false); }
+  }
+
+  Future<void> _confirm() async {
+    final code = _codeC.text.trim();
+    if (code.length != 6) { setState(() => _error = 'Введите 6-значный код'); return; }
+    setState(() { _busy = true; _error = null; });
+    try {
+      await widget.api.confirmEmailChange(code: code);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Email изменён'), backgroundColor: Colors.green));
+      Navigator.pop(context);
+    } on ApiException catch (e) { setState(() => _error = e.message); }
+    finally { if (mounted) setState(() => _busy = false); }
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.only(left: 20, right: 20, top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 20),
+    child: Column(mainAxisSize: MainAxisSize.min, children: [
+      Container(width: 48, height: 4, decoration: BoxDecoration(
+          color: Colors.black12, borderRadius: BorderRadius.circular(2))),
+      const SizedBox(height: 16),
+      const Text('Смена email', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+      const SizedBox(height: 16),
+      if (_step == 1)
+        TextField(controller: _emailC, keyboardType: TextInputType.emailAddress,
+            decoration: InputDecoration(labelText: 'Новый email',
+                prefixIcon: const Icon(Icons.email_outlined),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10))))
+      else ...[
+        Text('Код отправлен на ${_emailC.text.trim()}',
+            style: const TextStyle(color: Colors.black54)),
+        const SizedBox(height: 12),
+        TextField(controller: _codeC, keyboardType: TextInputType.number, maxLength: 6,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 8),
+            decoration: InputDecoration(hintText: '------', counterText: '',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),
+      ],
+      if (_error != null) Padding(padding: const EdgeInsets.only(top: 8),
+          child: Text(_error!, style: const TextStyle(color: Colors.red))),
+      if (_info != null) Padding(padding: const EdgeInsets.only(top: 8),
+          child: Text(_info!, style: const TextStyle(color: Colors.green))),
+      const SizedBox(height: 16),
+      SizedBox(width: double.infinity,
+        child: ElevatedButton(
+          onPressed: _busy ? null : (_step == 1 ? _sendCode : _confirm),
+          child: _busy
+              ? const SizedBox(height: 20, width: 20,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              : Text(_step == 1 ? 'Отправить код' : 'Подтвердить'),
+        ),
+      ),
+      if (_step == 2 && _cooldown == 0)
+        TextButton(onPressed: _busy ? null : _sendCode, child: const Text('Отправить повторно')),
+      if (_step == 2 && _cooldown > 0)
+        Padding(padding: const EdgeInsets.only(top: 4),
+            child: Text('Повторно через $_cooldown с.',
+                style: const TextStyle(color: Colors.black38, fontSize: 12))),
+    ]),
+  );
+}
+
+// ── Смена должности ───────────────────────────────────────────────────────────
+
+class ChangePositionSheet extends StatefulWidget {
+  const ChangePositionSheet({super.key, required this.api, required this.user});
+  final ApiClient api;
+  final UserProfile user;
+  @override State<ChangePositionSheet> createState() => _ChangePositionSheetState();
+}
+
+class _ChangePositionSheetState extends State<ChangePositionSheet> {
+  bool _hqMode = false;
+  List<HQItem>         _hqs         = [];
+  HQItem?              _selectedHQ;
+  List<UnitItem>       _units        = [];
+  List<PositionItem>   _positions    = [];
+  UnitItem?            _selectedUnit;
+  PositionItem?        _selectedPosition;
+  bool                 _loadingUnits = false;
+  List<HQPositionItem> _hqPositions  = [];
+  HQPositionItem?      _selectedHQPos;
+  bool    _loading = false;
+  bool    _busy    = false;
+  String? _error, _info;
+
+  static const _leadershipCodes = {'commander', 'commissioner', 'master'};
+  bool get _isLeadership =>
+      !_hqMode && _selectedPosition != null &&
+          _leadershipCodes.contains(_selectedPosition!.code);
+
+  @override
+  void initState() {
+    super.initState();
+    _hqMode = widget.user.isHQStaff;
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final r = await Future.wait([
+        widget.api.listHQs(), widget.api.listPositions(), widget.api.listHQPositions()]);
+      if (!mounted) return;
+      setState(() {
+        _hqs         = r[0] as List<HQItem>;
+        _positions   = r[1] as List<PositionItem>;
+        _hqPositions = r[2] as List<HQPositionItem>;
+      });
+      final hq = _hqs.where((h) => h.name == widget.user.hqName).firstOrNull
+          ?? (_hqs.isNotEmpty ? _hqs.first : null);
+      if (hq != null) { setState(() => _selectedHQ = hq); await _loadUnits(hq.id); }
+      if (!_hqMode && widget.user.positionName.isNotEmpty) {
+        setState(() => _selectedPosition =
+            _positions.where((p) => p.name == widget.user.positionName).firstOrNull);
+      }
+      if (_hqMode && widget.user.positionName.isNotEmpty) {
+        setState(() => _selectedHQPos =
+            _hqPositions.where((p) => p.name == widget.user.positionName).firstOrNull);
+      }
+    } catch (_) {}
+    finally { if (mounted) setState(() => _loading = false); }
+  }
+
+  Future<void> _loadUnits(int hqId) async {
+    setState(() { _loadingUnits = true; _units = []; _selectedUnit = null; });
+    try {
+      final units = await widget.api.listUnits(hqId);
+      if (!mounted) return;
+      setState(() {
+        _units = units;
+        _selectedUnit = units.where((u) => u.name == widget.user.unitName).firstOrNull;
+      });
+    } catch (_) {}
+    finally { if (mounted) setState(() => _loadingUnits = false); }
+  }
+
+  Future<void> _submit() async {
+    if (_hqMode) {
+      if (_selectedHQ == null)    { setState(() => _error = 'Выберите штаб'); return; }
+      if (_selectedHQPos == null) { setState(() => _error = 'Выберите должность ШСО'); return; }
+      setState(() { _busy = true; _error = null; _info = null; });
+      try {
+        await widget.api.requestHQStaffPosition(
+          hqId: _selectedHQ!.id,
+          positionId: _selectedHQPos!.id,
+          hqName: _selectedHQ!.name,
+          positionName: _selectedHQPos!.name,
+        );
+        if (!mounted) return;
+        setState(() => _info =
+        'Заявка на «${_selectedHQPos!.name}» в ${_selectedHQ!.name} '
+            'отправлена администратору');
+      } on ApiException catch (e) { setState(() => _error = e.message); }
+      finally { if (mounted) setState(() => _busy = false); }
+    } else {
+      if (_selectedPosition == null) { setState(() => _error = 'Выберите должность'); return; }
+      setState(() { _busy = true; _error = null; _info = null; });
+      try {
+        final res = await widget.api.requestPositionChange(
+          positionId:   _selectedPosition!.id,
+          positionCode: _selectedPosition!.code,
+          positionName: _selectedPosition!.name,
+          unitId:       _selectedUnit?.id,
+          unitName:     _selectedUnit?.name ?? '',
+          hqName:       _selectedHQ?.name ?? '',
+        );
+        if (!mounted) return;
+        if ((res['status'] as String?) == 'applied') {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Должность изменена'), backgroundColor: Colors.green));
+          Navigator.pop(context);
+        } else {
+          setState(() => _info = (res['message'] as String?) ??
+              'Заявка отправлена администратору на рассмотрение');
+        }
+      } on ApiException catch (e) { setState(() => _error = e.message); }
+      finally { if (mounted) setState(() => _busy = false); }
+    }
+  }
+
+  static const _blue = Color(0xFF1E3A8A);
+  static const _deco = InputDecoration(
+    border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(10))),
+    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+  );
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.only(left: 20, right: 20, top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 20),
+    child: _loading
+        ? const SizedBox(height: 120, child: Center(child: CircularProgressIndicator()))
+        : SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+      Container(width: 48, height: 4, decoration: BoxDecoration(
+          color: Colors.black12, borderRadius: BorderRadius.circular(2))),
+      const SizedBox(height: 16),
+      const Text('Смена должности',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+      const SizedBox(height: 12),
+      // Переключатель
+      Container(
+        decoration: BoxDecoration(color: const Color(0xFFEAF2FF),
+            borderRadius: BorderRadius.circular(10)),
+        padding: const EdgeInsets.all(4),
+        child: Row(children: [
+          _tab('Отрядная', !_hqMode,
+                  () => setState(() { _hqMode = false; _error = null; _info = null; })),
+          _tab('ШСО', _hqMode,
+                  () => setState(() { _hqMode = true; _error = null; _info = null; })),
+        ]),
+      ),
+      const SizedBox(height: 16),
+      _lbl('Штаб'),
+      DropdownButtonFormField<HQItem>(
+        initialValue: _selectedHQ,
+        hint: const Text('Выберите штаб'),
+        isExpanded: true, decoration: _deco,
+        items: _hqs.map((h) => DropdownMenuItem(value: h,
+            child: Text(h.name, overflow: TextOverflow.ellipsis))).toList(),
+        onChanged: _busy ? null : (h) {
+          setState(() { _selectedHQ = h; _selectedUnit = null; });
+          if (h != null) _loadUnits(h.id);
+        },
+      ),
+      const SizedBox(height: 12),
+      if (!_hqMode) ...[
+        _lbl('Отряд (необязательно)'),
+        if (_loadingUnits)
+          const Padding(padding: EdgeInsets.symmetric(vertical: 8),
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2)))
+        else
+          DropdownButtonFormField<UnitItem?>(
+            initialValue: _selectedUnit,
+            hint: const Text('Не указывать'),
+            isExpanded: true, decoration: _deco,
+            items: [
+              const DropdownMenuItem<UnitItem?>(value: null,
+                  child: Text('— Не указывать',
+                      style: TextStyle(color: Colors.black45))),
+              ..._units.map((u) => DropdownMenuItem(value: u,
+                  child: Text(u.name, overflow: TextOverflow.ellipsis))),
+            ],
+            onChanged: _busy ? null : (u) => setState(() => _selectedUnit = u),
+          ),
+        const SizedBox(height: 12),
+        _lbl('Должность'),
+        DropdownButtonFormField<PositionItem>(
+          initialValue: _selectedPosition,
+          hint: const Text('Выберите должность'),
+          isExpanded: true, decoration: _deco,
+          items: _positions.map((p) => DropdownMenuItem(
+              value: p, child: Text(p.name))).toList(),
+          onChanged: _busy ? null : (p) => setState(() => _selectedPosition = p),
+        ),
+        if (_isLeadership) ...[
+          const SizedBox(height: 10),
+          _warn('Руководящая должность — заявка будет отправлена администратору.'),
+        ],
+      ] else ...[
+        _lbl('Должность ШСО'),
+        DropdownButtonFormField<HQPositionItem>(
+          initialValue: _selectedHQPos,
+          hint: const Text('Выберите должность ШСО'),
+          isExpanded: true, decoration: _deco,
+          items: _hqPositions.map((p) => DropdownMenuItem(
+              value: p, child: Text(p.name))).toList(),
+          onChanged: _busy ? null : (p) => setState(() => _selectedHQPos = p),
+        ),
+        const SizedBox(height: 10),
+        _warn('После одобрения вы получите доступ к просмотру всех отрядов штаба.'),
+      ],
+      if (_error != null) Padding(padding: const EdgeInsets.only(top: 8),
+          child: Text(_error!, style: const TextStyle(color: Colors.red))),
+      if (_info != null) Padding(padding: const EdgeInsets.only(top: 8),
+          child: Text(_info!, textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.green))),
+      const SizedBox(height: 16),
+      SizedBox(width: double.infinity,
+        child: ElevatedButton(
+          onPressed: _busy ? null : _submit,
+          child: _busy
+              ? const SizedBox(height: 20, width: 20,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              : Text(_hqMode || _isLeadership
+              ? 'Отправить заявку' : 'Сменить должность'),
+        ),
+      ),
+      const SizedBox(height: 4),
+    ])),
+  );
+
+  Widget _tab(String label, bool active, VoidCallback onTap) => Expanded(
+    child: GestureDetector(onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: active ? _blue : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(label, textAlign: TextAlign.center,
+              style: TextStyle(color: active ? Colors.white : Colors.black54,
+                  fontWeight: FontWeight.w600, fontSize: 13)),
+        )),
+  );
+
+  static Widget _lbl(String t) => Align(alignment: Alignment.centerLeft,
+      child: Padding(padding: const EdgeInsets.only(bottom: 4),
+          child: Text(t, style: const TextStyle(fontSize: 13, color: Colors.black54))));
+
+  static Widget _warn(String t) => Container(
+    padding: const EdgeInsets.all(10),
+    decoration: BoxDecoration(color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.orange.shade200)),
+    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Icon(Icons.info_outline, color: Colors.orange.shade700, size: 18),
+      const SizedBox(width: 8),
+      Expanded(child: Text(t, style: const TextStyle(fontSize: 12, color: Colors.black54))),
+    ]),
   );
 }

@@ -142,8 +142,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             final n = provider.notifications[i];
             final isHQRequest =
                 n.typeCode == 'hq_staff_request' &&
-                    isAdmin &&
-                    !n.isRead;
+                    isAdmin && !n.isRead;
+            final isPosRequest =
+                n.typeCode == 'position_change_request' &&
+                    isAdmin && !n.isRead;
             final requestId =
             n.data?['request_id'] is int
                 ? n.data!['request_id'] as int
@@ -153,11 +155,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               onRead: () => context
                   .read<NotificationsProvider>()
                   .markOneRead(n.id),
-              onApprove: isHQRequest && requestId != null
-                  ? () => _review(context, n.id, requestId, true)
+              onApprove: (isHQRequest || isPosRequest) && requestId != null
+                  ? () => _review(context, n.id, requestId,
+                  isPosRequest ? 'position' : 'hq_staff', true)
                   : null,
-              onReject: isHQRequest && requestId != null
-                  ? () => _review(context, n.id, requestId, false)
+              onReject: (isHQRequest || isPosRequest) && requestId != null
+                  ? () => _review(context, n.id, requestId,
+                  isPosRequest ? 'position' : 'hq_staff', false)
                   : null,
             );
           },
@@ -167,7 +171,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _review(
-      BuildContext ctx, int notifId, int requestId, bool approve) async {
+      BuildContext ctx, int notifId, int requestId, String type, bool approve) async {
     String? comment;
     if (!approve) {
       comment = await showDialog<String>(
@@ -200,21 +204,23 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     if (!ctx.mounted) return;
     try {
       final api = ctx.read<AuthProvider>().api;
-      await api.reviewHQStaffRequest(
-        requestId,
-        approved: approve,
-        comment: comment ?? '',
-      );
+      if (type == 'position') {
+        await api.reviewPositionRequest(requestId,
+            approved: approve, comment: comment ?? '');
+      } else {
+        await api.reviewHQStaffRequest(requestId,
+            approved: approve, comment: comment ?? '');
+      }
 
       if (ctx.mounted) {
-        // Помечаем прочитанным сразу
         ctx.read<NotificationsProvider>().markOneRead(notifId);
+        // При одобрении — обновляем профиль (роль/должность могла смениться)
+        if (approve) await ctx.read<AuthProvider>().refreshProfile();
         ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
           content:
           Text(approve ? '✅ Заявка одобрена' : '❌ Заявка отклонена'),
           backgroundColor: approve ? Colors.green : Colors.red,
         ));
-        // Перезагружаем список
         ctx.read<NotificationsProvider>().load();
       }
     } catch (e) {
@@ -240,21 +246,23 @@ class _NotifTile extends StatelessWidget {
 
   IconData get _icon {
     switch (notif.typeCode) {
-      case 'hq_staff_request':  return Icons.person_add_outlined;
-      case 'hq_staff_approved': return Icons.check_circle_outline;
-      case 'hq_staff_rejected': return Icons.cancel_outlined;
-      case 'new_event_created': return Icons.event_outlined;
-      default:                  return Icons.notifications_outlined;
+      case 'hq_staff_request':        return Icons.person_add_outlined;
+      case 'hq_staff_approved':       return Icons.check_circle_outline;
+      case 'hq_staff_rejected':       return Icons.cancel_outlined;
+      case 'position_change_request': return Icons.work_outline;
+      case 'new_event_created':       return Icons.event_outlined;
+      default:                        return Icons.notifications_outlined;
     }
   }
 
   Color get _color {
     switch (notif.typeCode) {
-      case 'hq_staff_request':  return Colors.orange.shade700;
-      case 'hq_staff_approved': return Colors.green.shade700;
-      case 'hq_staff_rejected': return Colors.red.shade700;
-      case 'new_event_created': return const Color(0xFF1E3A8A);
-      default:                  return Colors.grey.shade600;
+      case 'hq_staff_request':        return Colors.orange.shade700;
+      case 'hq_staff_approved':       return Colors.green.shade700;
+      case 'hq_staff_rejected':       return Colors.red.shade700;
+      case 'position_change_request': return Colors.purple.shade600;
+      case 'new_event_created':       return const Color(0xFF1E3A8A);
+      default:                        return Colors.grey.shade600;
     }
   }
 

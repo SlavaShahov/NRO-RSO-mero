@@ -51,14 +51,21 @@ class RsoApp extends StatelessWidget {
             return att;
           },
         ),
-        // NotificationsProvider — запускает polling при создании
-        ChangeNotifierProvider(
-          create: (_) {
-            final p = NotificationsProvider(api: api);
-            // Инициализируем после первого кадра
+        // NotificationsProvider — при одобрении заявки обновляет профиль
+        ChangeNotifierProxyProvider<AuthProvider, NotificationsProvider>(
+          create: (ctx) {
+            final auth = ctx.read<AuthProvider>();
+            final p = NotificationsProvider(
+              api: api,
+              onProfileChanged: auth.refreshProfile,
+            );
             WidgetsBinding.instance
                 .addPostFrameCallback((_) => p.startPolling());
             return p;
+          },
+          update: (_, auth, notif) {
+            notif!.api.accessToken = auth.api.accessToken;
+            return notif;
           },
         ),
       ],
@@ -167,7 +174,11 @@ class _MainShellState extends State<_MainShell> {
     final safeTab = _tab.clamp(0, tabs.length - 1);
 
     return Scaffold(
-      body: IndexedStack(index: safeTab, children: tabs),
+      body: IndexedStack(
+        key: ValueKey(user?.roleCode ?? 'guest'),
+        index: safeTab,
+        children: tabs,
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: safeTab,
         onDestinationSelected: (i) => setState(() => _tab = i),

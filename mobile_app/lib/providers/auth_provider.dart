@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -13,6 +14,7 @@ class AuthProvider extends ChangeNotifier {
   final _storage = const FlutterSecureStorage();
   UserProfile? _user;
   bool _loading = true;
+  Timer? _profileTimer;
 
   UserProfile? get user    => _user;
   bool get isLoading       => _loading;
@@ -39,6 +41,15 @@ class AuthProvider extends ChangeNotifier {
       }
     } catch (_) { await _clear(); }
     finally { _loading = false; notifyListeners(); }
+    // Периодически обновляем профиль — ловим смену должности
+    _startProfilePolling();
+  }
+
+  void _startProfilePolling() {
+    _profileTimer?.cancel();
+    _profileTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (_user != null) refreshProfile();
+    });
   }
 
   Future<void> login(String email, String password) async {
@@ -82,6 +93,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    _profileTimer?.cancel();
     await api.logout();
     await _clear();
     _user = null;
@@ -109,6 +121,12 @@ class AuthProvider extends ChangeNotifier {
       memberCardLocation: memberCardLocation,
     );
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _profileTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _doRefresh() async {

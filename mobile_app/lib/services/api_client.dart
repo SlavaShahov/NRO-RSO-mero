@@ -54,7 +54,7 @@ class MyRegistration {
     if (eventDate.length < 7) return '';
     final m = int.tryParse(eventDate.substring(5, 7)) ?? 0;
     const ms = ['', 'ЯНВ', 'ФЕВ', 'МАР', 'АПР', 'МАЙ', 'ИЮН',
-                'ИЮЛ', 'АВГ', 'СЕН', 'ОКТ', 'НОЯ', 'ДЕК'];
+      'ИЮЛ', 'АВГ', 'СЕН', 'ОКТ', 'НОЯ', 'ДЕК'];
     return (m > 0 && m <= 12) ? ms[m] : '';
   }
 }
@@ -368,6 +368,69 @@ class ApiClient {
     await _post('/api/v1/notifications/$id/read', {}, auth: true);
   }
 
+
+  // ── Смена email ───────────────────────────────────────────────────────────
+
+  Future<void> requestEmailChange({required String newEmail}) async {
+    await _post('/api/v1/me/email/change', {'new_email': newEmail}, auth: true);
+  }
+
+  Future<void> confirmEmailChange({required String code}) async {
+    await _post('/api/v1/me/email/confirm', {'code': code}, auth: true);
+  }
+
+  // ── Смена должности ───────────────────────────────────────────────────────
+
+  Future<Map<String, dynamic>> requestPositionChange({
+    required int positionId,
+    required String positionCode,
+    required String positionName,
+    int? unitId,
+    String unitName = '',
+    String hqName = '',
+  }) async {
+    final body = <String, dynamic>{
+      'position_id':   positionId,
+      'position_code': positionCode,
+      'position_name': positionName,
+      'unit_name':     unitName,
+      'hq_name':       hqName,
+    };
+    if (unitId != null) body['unit_id'] = unitId;
+    return _post('/api/v1/me/position/change', body, auth: true);
+  }
+
+  Future<List<dynamic>> listPositionRequests() async {
+    final raw = await _rawGet(
+        Uri.parse('\$baseUrl/api/v1/admin/position-requests'),
+        headers: _headers(auth: true));
+    if (raw is! List) return [];
+    return raw;
+  }
+
+  Future<void> reviewPositionRequest(int id, {
+    required bool approved,
+    String comment = '',
+  }) async {
+    await _post('/api/v1/admin/position-requests/$id/review',
+        {'approved': approved, 'comment': comment}, auth: true);
+  }
+
+  // ── Заявка на должность ШСО ───────────────────────────────────────────────
+
+  Future<Map<String, dynamic>> requestHQStaffPosition({
+    required int hqId,
+    required int positionId,
+    String hqName = '',
+    String positionName = '',
+  }) async =>
+      _post('/api/v1/hq_staff/request', {
+        'hq_id':          hqId,
+        'hq_position_id': positionId,
+        'hq_name':        hqName,
+        'position_name':  positionName,
+      }, auth: true);
+
   // ── Private helpers ───────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>> _get(String path, {bool auth = false}) async {
@@ -398,18 +461,18 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> _post(
-    String path, Map<String, dynamic> body, {bool auth = false}
-  ) async {
+      String path, Map<String, dynamic> body, {bool auth = false}
+      ) async {
     try {
       final res = await http
           .post(Uri.parse('$baseUrl$path'),
-              headers: _headers(auth: auth), body: jsonEncode(body))
+          headers: _headers(auth: auth), body: jsonEncode(body))
           .timeout(_timeout);
       if (res.statusCode == 401 && auth && !_isRefreshing) {
         return _retryAfterRefresh(() async {
           final r2 = await http
               .post(Uri.parse('$baseUrl$path'),
-                  headers: _headers(auth: true), body: jsonEncode(body))
+              headers: _headers(auth: true), body: jsonEncode(body))
               .timeout(_timeout);
           return _handle(r2) as Map<String, dynamic>;
         });
@@ -423,18 +486,18 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> _put(
-    String path, Map<String, dynamic> body, {bool auth = false}
-  ) async {
+      String path, Map<String, dynamic> body, {bool auth = false}
+      ) async {
     try {
       final res = await http
           .put(Uri.parse('$baseUrl$path'),
-              headers: _headers(auth: auth), body: jsonEncode(body))
+          headers: _headers(auth: auth), body: jsonEncode(body))
           .timeout(_timeout);
       if (res.statusCode == 401 && auth && !_isRefreshing) {
         return _retryAfterRefresh(() async {
           final r2 = await http
               .put(Uri.parse('$baseUrl$path'),
-                  headers: _headers(auth: true), body: jsonEncode(body))
+              headers: _headers(auth: true), body: jsonEncode(body))
               .timeout(_timeout);
           return _handle(r2) as Map<String, dynamic>;
         });
@@ -448,8 +511,8 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> _postEmpty(
-    String path, {bool auth = false}
-  ) async {
+      String path, {bool auth = false}
+      ) async {
     try {
       final res = await http
           .post(Uri.parse('$baseUrl$path'), headers: _headers(auth: auth))

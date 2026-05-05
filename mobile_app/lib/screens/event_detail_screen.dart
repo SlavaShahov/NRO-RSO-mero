@@ -17,6 +17,7 @@ class EventDetailScreen extends StatefulWidget {
 
 class _EventDetailScreenState extends State<EventDetailScreen> {
   String? _qrCode;
+  int? _qrLoadedForUserId; // сброс при смене аккаунта
   bool _busy = false;
   bool _loadingQr = false;
   String? _error;
@@ -34,13 +35,18 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   ApiClient get _api => context.read<AuthProvider>().api;
 
   Future<void> _loadExistingQr(int eventId) async {
+    // Сбрасываем если сменился пользователь
+    final currentUserId = context.read<AuthProvider>().user?.id;
+    if (_qrLoaded && _qrLoadedForUserId != currentUserId) {
+      setState(() { _qrCode = null; _qrLoaded = false; _qrLoadedForUserId = null; });
+    }
     if (_qrLoaded || _loadingQr) return;
     setState(() => _loadingQr = true);
     try {
       final regs = await _api.myRegistrations();
-      final reg = regs.where((r) => r?.eventId == eventId).firstOrNull;
+      final reg = regs.where((r) => r.eventId == eventId).firstOrNull;
       if (reg != null && mounted) {
-        setState(() { _qrCode = reg.qrCode; _qrLoaded = true; });
+        setState(() { _qrCode = reg.qrCode; _qrLoaded = true; _qrLoadedForUserId = currentUserId; });
       }
     } catch (_) {}
     finally {
@@ -78,7 +84,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     try {
       final result = await _api.registerToEvent(event.id);
       final qr = result['qr_code'] as String?;
-      setState(() { _qrCode = qr; _qrLoaded = true; });
+      final uid = context.read<AuthProvider>().user?.id;
+      if (mounted) setState(() { _qrCode = qr; _qrLoaded = true; _qrLoadedForUserId = uid; });
       if (mounted) {
         context.read<EventsProvider>()
             .updateEventRegistrationStatus(event.id, 'registered');
@@ -147,7 +154,9 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     final minutes = _remaining.inMinutes.remainder(60);
     final seconds = _remaining.inSeconds.remainder(60);
 
-    final alreadyRegistered = event.hasRegistration || _qrCode != null;
+    final currentUserId = context.read<AuthProvider>().user?.id;
+    final qrBelongsToCurrentUser = _qrCode != null && _qrLoadedForUserId == currentUserId;
+    final alreadyRegistered = event.hasRegistration || qrBelongsToCurrentUser;
     final isPast            = _isEventPast(event);
 
     // Показываем кнопку регистрации только если:
@@ -289,38 +298,38 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                       style: TextStyle(color: Colors.black45, fontSize: 12)),
                 ])
               else if (alreadyRegistered)
-                Column(children: [
-                  const Icon(Icons.check_circle, size: 64, color: Colors.green),
-                  const SizedBox(height: 8),
-                  const Text('Вы зарегистрированы',
-                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
-                  const SizedBox(height: 4),
-                  TextButton.icon(
-                    icon: const Icon(Icons.qr_code),
-                    label: const Text('Показать QR-код'),
-                    onPressed: () => _loadExistingQr(event.id),
-                  ),
-                ])
-              else if (isPast)
-                // Мероприятие прошло, не зарегистрирован
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  child: Column(children: [
-                    Icon(Icons.event_busy, size: 48, color: Colors.black26),
-                    SizedBox(height: 8),
-                    Text('Регистрация закрыта',
-                        style: TextStyle(color: Colors.black45, fontSize: 14)),
-                  ]),
-                )
-              else
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  child: Text(
-                    'Зарегистрируйтесь чтобы получить QR-код',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.black54),
-                  ),
-                ),
+                  Column(children: [
+                    const Icon(Icons.check_circle, size: 64, color: Colors.green),
+                    const SizedBox(height: 8),
+                    const Text('Вы зарегистрированы',
+                        style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                    const SizedBox(height: 4),
+                    TextButton.icon(
+                      icon: const Icon(Icons.qr_code),
+                      label: const Text('Показать QR-код'),
+                      onPressed: () => _loadExistingQr(event.id),
+                    ),
+                  ])
+                else if (isPast)
+                  // Мероприятие прошло, не зарегистрирован
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: Column(children: [
+                        Icon(Icons.event_busy, size: 48, color: Colors.black26),
+                        SizedBox(height: 8),
+                        Text('Регистрация закрыта',
+                            style: TextStyle(color: Colors.black45, fontSize: 14)),
+                      ]),
+                    )
+                  else
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: Text(
+                        'Зарегистрируйтесь чтобы получить QR-код',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.black54),
+                      ),
+                    ),
 
               if (_error != null)
                 Padding(
@@ -346,8 +355,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                     onPressed: _busy ? null : () => _register(event),
                     child: _busy
                         ? const SizedBox(height: 20, width: 20,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white))
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
                         : const Text('Зарегистрироваться'),
                   ),
                 ),
@@ -360,13 +369,13 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   }
 
   Widget _info(IconData icon, String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 6, top: 4),
-        child: Row(children: [
-          Icon(icon, size: 18, color: Colors.black45),
-          const SizedBox(width: 10),
-          Expanded(child: Text(text, style: const TextStyle(fontSize: 14))),
-        ]),
-      );
+    padding: const EdgeInsets.only(bottom: 6, top: 4),
+    child: Row(children: [
+      Icon(icon, size: 18, color: Colors.black45),
+      const SizedBox(width: 10),
+      Expanded(child: Text(text, style: const TextStyle(fontSize: 14))),
+    ]),
+  );
 }
 
 class _Counter extends StatelessWidget {
@@ -391,7 +400,7 @@ class _Sep extends StatelessWidget {
   const _Sep();
   @override
   Widget build(BuildContext context) => const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 2),
-        child: Text(':', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-      );
+    padding: EdgeInsets.symmetric(horizontal: 2),
+    child: Text(':', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+  );
 }

@@ -27,18 +27,18 @@ const userSelectV2 = `
 	       COALESCE(u.member_card_location,'with_user'),
 	       COALESCE(u.account_status,'active'),
 	       u.unit_id, u.unit_position_id,
-	       COALESCE(un.name,''), COALESCE(lh.name,''), COALESCE(up.name,''),
-	       -- Роль: если есть одобренная ШСО-заявка — 'hq_staff', иначе из unit_positions
-	       CASE
-	           WHEN hs.status = 'approved' THEN 'hq_staff'
-	           ELSE COALESCE(sr.code,'participant')
-	       END AS role_code
+	       COALESCE(un.name,''),
+	       CASE WHEN hs.status='approved' THEN COALESCE(lh_hs.name,'') ELSE COALESCE(lh.name,'') END,
+	       CASE WHEN hs.status='approved' THEN COALESCE(hp.name,'')  ELSE COALESCE(up.name,'') END,
+	       CASE WHEN hs.status='approved' THEN 'hq_staff' ELSE COALESCE(sr.code,'participant') END
 	FROM users u
-	LEFT JOIN units              un ON un.id = u.unit_id
-	LEFT JOIN local_headquarters lh ON lh.id = un.local_headquarters_id
-	LEFT JOIN unit_positions     up ON up.id = u.unit_position_id
-	LEFT JOIN system_roles       sr ON sr.id = up.system_role_id
-	LEFT JOIN hq_staff           hs ON hs.user_id = u.id AND hs.status = 'approved'
+	LEFT JOIN units              un    ON un.id    = u.unit_id
+	LEFT JOIN local_headquarters lh    ON lh.id   = un.local_headquarters_id
+	LEFT JOIN unit_positions     up    ON up.id   = u.unit_position_id
+	LEFT JOIN system_roles       sr    ON sr.id   = up.system_role_id
+	LEFT JOIN hq_staff           hs    ON hs.user_id = u.id AND hs.status = 'approved'
+	LEFT JOIN local_headquarters lh_hs ON lh_hs.id = hs.local_headquarters_id
+	LEFT JOIN hq_positions       hp    ON hp.id   = hs.hq_position_id
 `
 
 // GetUserByEmailV2 — использует расширенный запрос с ролью штабника
