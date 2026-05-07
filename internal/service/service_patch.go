@@ -251,23 +251,34 @@ func (s *Service) ListPendingPositionRequests(ctx context.Context) ([]map[string
 // ── Отправка email ────────────────────────────────────────────────────────────
 
 func (s *Service) sendEmail(to, subject, body string) {
-	if s.cfg.SMTPUser == "" { return }
+	// Выбираем SMTP: CODE_SMTP_* если заданы, иначе основной SMTP
+	host := s.cfg.SMTPHost
+	port := s.cfg.SMTPPort
+	user := s.cfg.SMTPUser
+	pass := s.cfg.SMTPPassword
+	if s.cfg.CodeSMTPUser != "" {
+		host = s.cfg.CodeSMTPHost
+		port = s.cfg.CodeSMTPPort
+		user = s.cfg.CodeSMTPUser
+		pass = s.cfg.CodeSMTPPassword
+	}
+	if user == "" { return }
 	encodedSubj := "=?UTF-8?B?" + base64.StdEncoding.EncodeToString([]byte(subject)) + "?="
 	encodedBody := base64.StdEncoding.EncodeToString([]byte(body))
-	msg := "From: " + s.cfg.SMTPUser + "\r\nTo: " + to + "\r\nSubject: " + encodedSubj +
+	msg := "From: " + user + "\r\nTo: " + to + "\r\nSubject: " + encodedSubj +
 		"\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n" +
 		"Content-Transfer-Encoding: base64\r\n\r\n" + encodedBody
-	addr := fmt.Sprintf("%s:%d", s.cfg.SMTPHost, s.cfg.SMTPPort)
-	auth := smtp.PlainAuth("", s.cfg.SMTPUser, s.cfg.SMTPPassword, s.cfg.SMTPHost)
+	addr := fmt.Sprintf("%s:%d", host, port)
+	auth := smtp.PlainAuth("", user, pass, host)
 	fmt.Printf("[email] sending to %s via %s\n", to, addr)
-	if s.cfg.SMTPPort == 465 {
-		conn, err := tls.Dial("tcp", addr, &tls.Config{ServerName: s.cfg.SMTPHost})
+	if port == 465 {
+		conn, err := tls.Dial("tcp", addr, &tls.Config{ServerName: host})
 		if err != nil { fmt.Printf("[email] tls dial err: %v\n", err); return }
 		defer conn.Close()
-		c, err := smtp.NewClient(conn, s.cfg.SMTPHost)
+		c, err := smtp.NewClient(conn, host)
 		if err != nil { fmt.Printf("[email] client err: %v\n", err); return }
 		if err := c.Auth(auth); err != nil { fmt.Printf("[email] auth err: %v\n", err); return }
-		if err := c.Mail(s.cfg.SMTPUser); err != nil { fmt.Printf("[email] mail err: %v\n", err); return }
+		if err := c.Mail(user); err != nil { fmt.Printf("[email] mail err: %v\n", err); return }
 		if err := c.Rcpt(to); err != nil { fmt.Printf("[email] rcpt err: %v\n", err); return }
 		w, err := c.Data()
 		if err != nil { fmt.Printf("[email] data err: %v\n", err); return }
@@ -276,7 +287,7 @@ func (s *Service) sendEmail(to, subject, body string) {
 		if err := c.Quit(); err != nil { fmt.Printf("[email] quit err: %v\n", err) }
 		fmt.Printf("[email] sent OK to %s\n", to)
 	} else {
-		if err := smtp.SendMail(addr, auth, s.cfg.SMTPUser, []string{to}, []byte(msg)); err != nil {
+		if err := smtp.SendMail(addr, auth, user, []string{to}, []byte(msg)); err != nil {
 			fmt.Printf("[email] sendmail err to %s: %v\n", to, err)
 		} else {
 			fmt.Printf("[email] sent OK to %s\n", to)

@@ -7,13 +7,15 @@ class EventItem {
   final int participantsCount;
   final String? userRegistrationStatus;
   final String? bannerBase64; // баннер мероприятия
+  final bool isRegistrationClosed; // закрыта ли регистрация (3 раб. дня)
 
   const EventItem({required this.id, required this.title, required this.description,
     required this.eventDate, required this.startTime, required this.endTime,
     required this.location, required this.levelCode, required this.typeCode,
     required this.statusCode, required this.isRegistrationRequired,
     this.maxParticipants, required this.participantsCount,
-    this.userRegistrationStatus, this.bannerBase64});
+    this.userRegistrationStatus, this.bannerBase64,
+    this.isRegistrationClosed = false});
 
   factory EventItem.fromJson(Map<String, dynamic> j) => EventItem(
     id: j['id'] as int, title: (j['title'] ?? '') as String,
@@ -30,6 +32,7 @@ class EventItem {
     participantsCount: (j['participants_count'] ?? 0) as int,
     userRegistrationStatus: j['user_registration_status'] as String?,
     bannerBase64: j['banner_base64'] as String?,
+    isRegistrationClosed: (j['is_registration_closed'] ?? false) as bool,
   );
 
   bool get isRegistered => userRegistrationStatus == 'registered';

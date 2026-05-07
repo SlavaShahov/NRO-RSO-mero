@@ -193,10 +193,14 @@ func (s *Service) RegisterToEvent(ctx context.Context, userID int, event models.
 	if len(dateParts) == 3 {
 		var year, month, day int
 		if _, err := fmt.Sscanf(event.EventDate, "%d-%d-%d", &year, &month, &day); err == nil {
-			eventDate := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
-			lastDay  := subtractWorkdays(eventDate, 3)
-			deadline := time.Date(lastDay.Year(), lastDay.Month(), lastDay.Day(), 23, 59, 59, 0, time.UTC)
-			if time.Now().UTC().After(deadline) {
+			loc, _ := time.LoadLocation("Asia/Novosibirsk")
+			if loc == nil { loc = time.FixedZone("NSK", 7*3600) }
+			// Дедлайн: день мероприятия минус 3 рабочих дня, 00:00 НСК
+			// Пример: мероприятие 8 мая (пт) → дедлайн 5 мая (вт) 00:00 НСК
+			eventDate   := time.Date(year, time.Month(month), day, 0, 0, 0, 0, loc)
+			deadlineDay := subtractWorkdays(eventDate, 3)
+			deadline    := time.Date(deadlineDay.Year(), deadlineDay.Month(), deadlineDay.Day(), 0, 0, 0, 0, loc)
+			if time.Now().In(loc).After(deadline) {
 				return 0, uuid.UUID{}, ErrRegClosed
 			}
 		}

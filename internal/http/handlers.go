@@ -319,7 +319,27 @@ func (h *Handler) listEvents(w http.ResponseWriter, r *http.Request) {
 		r.URL.Query().Get("search"))
 	if err != nil { writeError(w, 500, "events query failed"); return }
 	if evs == nil { evs = []models.Event{} }
-	writeJSON(w, 200, evs)
+	// Добавляем флаг is_registration_closed чтобы Flutter
+	// скрывал кнопку регистрации до попытки
+	loc, _ := time.LoadLocation("Asia/Novosibirsk")
+	if loc == nil { loc = time.FixedZone("NSK", 7*3600) }
+	type eventWithClosed struct {
+		models.Event
+		IsRegistrationClosed bool `json:"is_registration_closed"`
+	}
+	result := make([]eventWithClosed, len(evs))
+	for i, e := range evs {
+		closed := false
+		var year, month, day int
+		if _, err := fmt.Sscanf(e.EventDate, "%d-%d-%d", &year, &month, &day); err == nil {
+			eventDate   := time.Date(year, time.Month(month), day, 0, 0, 0, 0, loc)
+			deadlineDay := registrationDeadline(eventDate)
+			deadline    := time.Date(deadlineDay.Year(), deadlineDay.Month(), deadlineDay.Day(), 0, 0, 0, 0, loc)
+			closed = time.Now().In(loc).After(deadline)
+		}
+		result[i] = eventWithClosed{Event: e, IsRegistrationClosed: closed}
+	}
+	writeJSON(w, 200, result)
 }
 
 func (h *Handler) createEvent(w http.ResponseWriter, r *http.Request) {
@@ -1058,6 +1078,18 @@ func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, err.Error()); return
 	}
 	writeJSON(w, 200, map[string]any{"status": "password_reset"})
+}
+
+// registrationDeadline — день закрытия регистрации (3 рабочих дня до мероприятия)
+func registrationDeadline(eventDate time.Time) time.Time {
+	result := eventDate
+	for subtracted := 0; subtracted < 3; {
+		result = result.AddDate(0, 0, -1)
+		if result.Weekday() != time.Saturday && result.Weekday() != time.Sunday {
+			subtracted++
+		}
+	}
+	return result
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {

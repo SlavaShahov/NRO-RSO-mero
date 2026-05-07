@@ -18,6 +18,12 @@ type Config struct {
 	SMTPUser     string
 	SMTPPassword string
 	EmailTo      string
+	// Отдельный SMTP для кодов верификации (опционально)
+	// Если не задан — используется основной SMTP
+	CodeSMTPHost     string
+	CodeSMTPPort     int
+	CodeSMTPUser     string
+	CodeSMTPPassword string
 }
 
 func Load() Config {
@@ -32,6 +38,10 @@ func Load() Config {
 		SMTPUser:     env("SMTP_USER", ""),
 		SMTPPassword: env("SMTP_PASSWORD", ""),
 		EmailTo:      env("EMAIL_TO", ""),
+		CodeSMTPHost:     env("CODE_SMTP_HOST", ""),
+		CodeSMTPPort:     envInt("CODE_SMTP_PORT", 587),
+		CodeSMTPUser:     env("CODE_SMTP_USER", ""),
+		CodeSMTPPassword: env("CODE_SMTP_PASSWORD", ""),
 	}
 }
 
