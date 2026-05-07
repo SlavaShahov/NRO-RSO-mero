@@ -1,12 +1,43 @@
 import 'dart:async';
 
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import '../services/api_client.dart';
 import '../screens/notifications_screen.dart';
 
-/// Сервис системных push-уведомлений (flutter_local_notifications)
+// ── Background FCM handler — top-level, вне классов ──────────────────────────
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  debugPrint('[FCM] background: ${message.notification?.title}');
+}
+
+// ── FCM инициализация ─────────────────────────────────────────────────────────
+class _FcmInit {
+  static final _FcmInit _i = _FcmInit._();
+  factory _FcmInit() => _i;
+  _FcmInit._();
+  bool _done = false;
+
+  Future<void> init({
+    required Future<void> Function(String) onToken,
+    required void Function(RemoteMessage) onForeground,
+  }) async {
+    if (_done) return;
+    _done = true;
+    final fcm = FirebaseMessaging.instance;
+    await fcm.requestPermission(alert: true, sound: true, badge: true);
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    FirebaseMessaging.onMessage.listen(onForeground);
+    final token = await fcm.getToken();
+    debugPrint('[FCM] token: $token');
+    if (token != null) await onToken(token);
+    fcm.onTokenRefresh.listen((t) async => await onToken(t));
+  }
+}
+
+// ── Локальные уведомления (foreground без FCM) ────────────────────────────────
 class _PushService {
   static final _PushService _i = _PushService._();
   factory _PushService() => _i;
@@ -25,7 +56,6 @@ class _PushService {
     );
     await _plugin.initialize(
         const InitializationSettings(android: android, iOS: ios));
-    // Android 13+ — запрашиваем разрешение на уведомления
     await _plugin
         .resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>()
@@ -51,11 +81,11 @@ class _PushService {
   }
 }
 
+// ── NotificationsProvider ─────────────────────────────────────────────────────
 class NotificationsProvider extends ChangeNotifier {
   NotificationsProvider({required this.api, this.onProfileChanged});
 
   final ApiClient api;
-  /// Колбэк для обновления профиля при одобрении заявки на должность
   final Future<void> Function()? onProfileChanged;
   final _push = _PushService();
 
@@ -64,17 +94,26 @@ class NotificationsProvider extends ChangeNotifier {
   bool loading = false;
   String? error;
 
-  final Set<int> _shownIds = {};     // уже показали push
-  final Set<int> _appliedRoles = {}; // уже применили обновление профиля
+  final Set<int> _shownIds = {};
+  final Set<int> _appliedRoles = {};
   Timer? _timer;
 
-  /// Инициализируем push и запускаем polling каждые 30 секунд
   Future<void> startPolling() async {
     await _push.init();
+
+    await _FcmInit().init(
+      onToken: (token) async {
+        try { await api.registerFcmToken(token); } catch (_) {}
+      },
+      onForeground: (msg) async {
+        // FCM уже показал системное уведомление Android —
+        // только обновляем список, не показываем дубль
+        await _poll(skipLocalPush: true);
+      },
+    );
+
     _timer?.cancel();
-    // Сразу при старте — загружаем все существующие и регистрируем как «уже показанные»
     await _initialLoad();
-    // Затем каждые 30 секунд проверяем новые
     _timer = Timer.periodic(const Duration(seconds: 30), (_) => _poll());
   }
 
@@ -89,35 +128,29 @@ class NotificationsProvider extends ChangeNotifier {
     super.dispose();
   }
 
-  /// При первом запуске — помечаем все существующие уведомления
-  /// как «уже виденные» чтобы не спамить при старте приложения
   Future<void> _initialLoad() async {
     try {
       final raw = await api.listNotifications();
-      for (final n in raw) {
-        _shownIds.add(n.id);
-      }
+      for (final n in raw) { _shownIds.add(n.id); }
       notifications = raw;
       unreadCount = raw.where((n) => !n.isRead).length;
       notifyListeners();
     } catch (_) {}
   }
 
-  /// Polling — проверяем новые уведомления и показываем push
-  Future<void> _poll() async {
+  // skipLocalPush=true когда FCM уже доставил уведомление —
+  // избегаем дублирования
+  Future<void> _poll({bool skipLocalPush = false}) async {
     try {
       final raw = await api.listNotifications();
       bool hasNew = false;
       bool needProfileRefresh = false;
       for (final n in raw) {
-        // Push только для новых непрочитанных
         if (!n.isRead && !_shownIds.contains(n.id)) {
           _shownIds.add(n.id);
           hasNew = true;
-          await _push.show(n.id, n.title, n.body);
+          if (!skipLocalPush) await _push.show(n.id, n.title, n.body);
         }
-        // Обновляем профиль при ЛЮБОМ непрочитанном approval
-        // (независимо от _shownIds — уведомление могло быть уже показано)
         if (!n.isRead &&
             (n.typeCode == 'position_change_approved' ||
                 n.typeCode == 'hq_staff_approved') &&
@@ -133,41 +166,27 @@ class NotificationsProvider extends ChangeNotifier {
     } catch (_) {}
   }
 
-  /// Явная загрузка (pull-to-refresh или открытие экрана)
   Future<void> load() async {
-    loading = true;
-    error = null;
-    notifyListeners();
+    loading = true; error = null; notifyListeners();
     try {
       final raw = await api.listNotifications();
-      // Регистрируем все как виденные
-      for (final n in raw) {
-        _shownIds.add(n.id);
-      }
+      for (final n in raw) { _shownIds.add(n.id); }
       notifications = raw;
       unreadCount = raw.where((n) => !n.isRead).length;
     } catch (e) {
       error = e.toString();
     } finally {
-      loading = false;
-      notifyListeners();
+      loading = false; notifyListeners();
     }
   }
 
   Future<void> markAllRead() async {
     try {
       await api.markAllNotificationsRead();
-      notifications = notifications
-          .map((n) => AppNotification(
-        id: n.id,
-        typeCode: n.typeCode,
-        title: n.title,
-        body: n.body,
-        data: n.data,
-        isRead: true,
-        createdAt: n.createdAt,
-      ))
-          .toList();
+      notifications = notifications.map((n) => AppNotification(
+        id: n.id, typeCode: n.typeCode, title: n.title,
+        body: n.body, data: n.data, isRead: true, createdAt: n.createdAt,
+      )).toList();
       unreadCount = 0;
       notifyListeners();
     } catch (_) {}
@@ -180,13 +199,8 @@ class NotificationsProvider extends ChangeNotifier {
       if (idx >= 0 && !notifications[idx].isRead) {
         final n = notifications[idx];
         notifications[idx] = AppNotification(
-          id: n.id,
-          typeCode: n.typeCode,
-          title: n.title,
-          body: n.body,
-          data: n.data,
-          isRead: true,
-          createdAt: n.createdAt,
+          id: n.id, typeCode: n.typeCode, title: n.title,
+          body: n.body, data: n.data, isRead: true, createdAt: n.createdAt,
         );
         if (unreadCount > 0) unreadCount--;
         notifyListeners();

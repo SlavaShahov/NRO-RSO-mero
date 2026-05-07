@@ -52,6 +52,8 @@ func (s *Service) ReviewHQStaffRequest(ctx context.Context,
 		if comment != "" { body += "\nКомментарий: " + comment }
 		_ = s.repo.CreateNotification(ctx, reqs.UserID, typeCode, title, body,
 			map[string]any{"request_id": requestID, "approved": approved})
+		s.SendFcmToUser(ctx, reqs.UserID, title, body,
+			map[string]string{"type": typeCode})
 	}
 	return nil
 }
@@ -240,6 +242,8 @@ func (s *Service) ReviewPositionRequest(ctx context.Context,
 		userID, _ := req["user_id"].(int)
 		_ = s.repo.CreateNotification(ctx, userID, typeCode, title, body,
 			map[string]any{"request_id": requestID, "approved": approved})
+		s.SendFcmToUser(ctx, userID, title, body,
+			map[string]string{"type": typeCode})
 	}
 	return nil
 }

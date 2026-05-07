@@ -10,8 +10,8 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-
-	"rso-events/internal/middleware"
+	
+  "rso-events/internal/middleware"
 	"rso-events/internal/models"
 	"rso-events/internal/repo"
 	"rso-events/internal/config"
@@ -91,6 +91,7 @@ func (h *Handler) Register(r chi.Router) {
 			r.Post("/me/position/change",       h.requestPositionChange)
 			r.Get("/admin/position-requests",   h.listPositionRequests)
 			r.Post("/admin/position-requests/{id}/review", h.reviewPositionRequest)
+			r.Post("/me/fcm-token",             h.saveFcmToken)
 			r.Post("/me/avatar",                h.uploadAvatar)
 			r.Get("/me/avatar",                 h.getAvatar)
 
@@ -156,6 +157,9 @@ func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 				_ = h.svc.NotifyAdmins(bgCtx, "hq_staff_request",
 					"📋 Новая заявка на должность ШСО", b,
 					map[string]any{"request_id": rID})
+				// FCM push всем админам
+				h.svc.SendFcmToAdmins(bgCtx, "📋 Новая заявка на должность ШСО", b,
+					map[string]string{"type": "hq_staff_request"})
 			}(context.Background(), reqID, body)
 		}
 	}
@@ -319,27 +323,7 @@ func (h *Handler) listEvents(w http.ResponseWriter, r *http.Request) {
 		r.URL.Query().Get("search"))
 	if err != nil { writeError(w, 500, "events query failed"); return }
 	if evs == nil { evs = []models.Event{} }
-	// Добавляем флаг is_registration_closed чтобы Flutter
-	// скрывал кнопку регистрации до попытки
-	loc, _ := time.LoadLocation("Asia/Novosibirsk")
-	if loc == nil { loc = time.FixedZone("NSK", 7*3600) }
-	type eventWithClosed struct {
-		models.Event
-		IsRegistrationClosed bool `json:"is_registration_closed"`
-	}
-	result := make([]eventWithClosed, len(evs))
-	for i, e := range evs {
-		closed := false
-		var year, month, day int
-		if _, err := fmt.Sscanf(e.EventDate, "%d-%d-%d", &year, &month, &day); err == nil {
-			eventDate   := time.Date(year, time.Month(month), day, 0, 0, 0, 0, loc)
-			deadlineDay := registrationDeadline(eventDate)
-			deadline    := time.Date(deadlineDay.Year(), deadlineDay.Month(), deadlineDay.Day(), 0, 0, 0, 0, loc)
-			closed = time.Now().In(loc).After(deadline)
-		}
-		result[i] = eventWithClosed{Event: e, IsRegistrationClosed: closed}
-	}
-	writeJSON(w, 200, result)
+	writeJSON(w, 200, evs)
 }
 
 func (h *Handler) createEvent(w http.ResponseWriter, r *http.Request) {
@@ -383,6 +367,9 @@ func (h *Handler) createEvent(w http.ResponseWriter, r *http.Request) {
 		if loc != "" { b += " • " + loc }
 		_ = h.svc.NotifyAllParticipants(bgCtx, "new_event_created",
 			"🎉 Новое мероприятие: "+title, b, map[string]any{"event_id": eid})
+		// FCM push всем пользователям
+		h.svc.SendFcmToAll(bgCtx, "🎉 Новое мероприятие: "+title, b,
+			map[string]string{"type": "new_event_created", "event_id": fmt.Sprint(eid)})
 	}(context.Background(), in.Title, in.EventDate, in.Location, id)
 
 	// Запускаем отложенную отправку списка участников
@@ -521,6 +508,9 @@ func (h *Handler) hqStaffRequest(w http.ResponseWriter, r *http.Request) {
 	go func(bgCtx context.Context, rID int, title, b string) {
 		_ = h.svc.NotifyAdmins(bgCtx, "hq_staff_request", title, b,
 			map[string]any{"request_id": rID})
+		// FCM push всем админам
+		h.svc.SendFcmToAdmins(bgCtx, title, b,
+			map[string]string{"type": "hq_staff_request"})
 	}(context.Background(), reqID, notifTitle, notifBody)
 
 	writeJSON(w, 201, map[string]any{"request_id": reqID, "status": "pending"})
@@ -1080,16 +1070,18 @@ func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"status": "password_reset"})
 }
 
-// registrationDeadline — день закрытия регистрации (3 рабочих дня до мероприятия)
-func registrationDeadline(eventDate time.Time) time.Time {
-	result := eventDate
-	for subtracted := 0; subtracted < 3; {
-		result = result.AddDate(0, 0, -1)
-		if result.Weekday() != time.Saturday && result.Weekday() != time.Sunday {
-			subtracted++
-		}
+
+func (h *Handler) saveFcmToken(w http.ResponseWriter, r *http.Request) {
+	uid, ok := r.Context().Value(middleware.UserIDKey).(int)
+	if !ok { writeError(w, 401, "unauthorized"); return }
+	var in struct{ Token string `json:"token"` }
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Token == "" {
+		writeError(w, 400, "token required"); return
 	}
-	return result
+	if err := h.svc.SaveFcmToken(r.Context(), uid, in.Token); err != nil {
+		writeError(w, 500, "save token failed"); return
+	}
+	writeJSON(w, 200, map[string]any{"status": "ok"})
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {

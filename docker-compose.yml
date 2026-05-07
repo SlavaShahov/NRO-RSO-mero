@@ -41,6 +41,8 @@ services:
       migrate:
         condition: service_completed_successfully
     env_file: .env
+    volumes:
+      - ./firebase-service-account.json:/app/firebase-service-account.json:ro
     environment:
       APP_ADDR: :8080
     ports:

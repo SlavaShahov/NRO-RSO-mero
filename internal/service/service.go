@@ -1,10 +1,15 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"rso-events/internal/auth"
@@ -14,6 +19,7 @@ import (
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/oauth2/google"
 )
 
 var (
@@ -193,14 +199,10 @@ func (s *Service) RegisterToEvent(ctx context.Context, userID int, event models.
 	if len(dateParts) == 3 {
 		var year, month, day int
 		if _, err := fmt.Sscanf(event.EventDate, "%d-%d-%d", &year, &month, &day); err == nil {
-			loc, _ := time.LoadLocation("Asia/Novosibirsk")
-			if loc == nil { loc = time.FixedZone("NSK", 7*3600) }
-			// Дедлайн: день мероприятия минус 3 рабочих дня, 00:00 НСК
-			// Пример: мероприятие 8 мая (пт) → дедлайн 5 мая (вт) 00:00 НСК
-			eventDate   := time.Date(year, time.Month(month), day, 0, 0, 0, 0, loc)
-			deadlineDay := subtractWorkdays(eventDate, 3)
-			deadline    := time.Date(deadlineDay.Year(), deadlineDay.Month(), deadlineDay.Day(), 0, 0, 0, 0, loc)
-			if time.Now().In(loc).After(deadline) {
+			eventDate := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+			lastDay  := subtractWorkdays(eventDate, 3)
+			deadline := time.Date(lastDay.Year(), lastDay.Month(), lastDay.Day(), 23, 59, 59, 0, time.UTC)
+			if time.Now().UTC().After(deadline) {
 				return 0, uuid.UUID{}, ErrRegClosed
 			}
 		}
@@ -326,4 +328,98 @@ func (s *Service) GetEventBanner(ctx context.Context, eventID int) (string, erro
 // ListUpcomingEventDates — для восстановления горутин при старте
 func (s *Service) ListUpcomingEventDates(ctx context.Context) ([]struct{ ID int; EventDate string }, error) {
 	return s.repo.ListUpcomingEventDates(ctx)
+}
+
+// ─── FCM ──────────────────────────────────────────────────────────────────────
+
+func (s *Service) SaveFcmToken(ctx context.Context, userID int, token string) error {
+	return s.repo.SaveFcmToken(ctx, userID, token)
+}
+
+func (s *Service) SendFcmToUser(ctx context.Context, userID int, title, body string, data map[string]string) {
+	if s.cfg.FCMCredentialsFile == "" { return }
+	token, err := s.repo.GetFcmToken(ctx, userID)
+	if err != nil || token == "" { return }
+	sendFcmPush(ctx, s.cfg.FCMCredentialsFile, s.cfg.FCMProjectID, []string{token}, title, body, data)
+}
+
+func (s *Service) SendFcmToAdmins(ctx context.Context, title, body string, data map[string]string) {
+	if s.cfg.FCMCredentialsFile == "" { return }
+	tokens, err := s.repo.GetAdminFcmTokens(ctx)
+	if err != nil || len(tokens) == 0 { return }
+	sendFcmPush(ctx, s.cfg.FCMCredentialsFile, s.cfg.FCMProjectID, tokens, title, body, data)
+}
+
+// SendFcmToAll — push всем активным пользователям
+func (s *Service) SendFcmToAll(ctx context.Context, title, body string, data map[string]string) {
+	if s.cfg.FCMCredentialsFile == "" { return }
+	tokens, err := s.repo.GetAllFcmTokens(ctx)
+	if err != nil || len(tokens) == 0 { return }
+	sendFcmPush(ctx, s.cfg.FCMCredentialsFile, s.cfg.FCMProjectID, tokens, title, body, data)
+}
+
+// ─── FCM HTTP v1 ──────────────────────────────────────────────────────────────
+
+var (
+	fcmMu          sync.Mutex
+	fcmTokenCache  string
+	fcmTokenExpiry time.Time
+)
+
+func getFcmAccessToken(ctx context.Context, credFile string) (string, error) {
+	fcmMu.Lock()
+	defer fcmMu.Unlock()
+	if fcmTokenCache != "" && time.Now().Before(fcmTokenExpiry) {
+		return fcmTokenCache, nil
+	}
+	data, err := os.ReadFile(credFile)
+	if err != nil { return "", fmt.Errorf("fcm read creds: %w", err) }
+	creds, err := google.CredentialsFromJSON(ctx, data,
+		"https://www.googleapis.com/auth/firebase.messaging")
+	if err != nil { return "", fmt.Errorf("fcm parse creds: %w", err) }
+	token, err := creds.TokenSource.Token()
+	if err != nil { return "", fmt.Errorf("fcm get token: %w", err) }
+	fcmTokenCache = token.AccessToken
+	fcmTokenExpiry = token.Expiry.Add(-60 * time.Second)
+	return fcmTokenCache, nil
+}
+
+func sendFcmPush(ctx context.Context, credFile, projectID string, tokens []string, title, body string, data map[string]string) {
+	if credFile == "" || projectID == "" || len(tokens) == 0 { return }
+	go func() {
+		accessToken, err := getFcmAccessToken(ctx, credFile)
+		if err != nil { fmt.Printf("[fcm] auth: %v\n", err); return }
+		url := fmt.Sprintf("https://fcm.googleapis.com/v1/projects/%s/messages:send", projectID)
+		type notif struct {
+			Title string `json:"title"`
+			Body  string `json:"body"`
+		}
+		type androidCfg struct{ Priority string `json:"priority"` }
+		type msg struct {
+			Token   string            `json:"token"`
+			Notif   notif             `json:"notification"`
+			Data    map[string]string `json:"data,omitempty"`
+			Android androidCfg        `json:"android"`
+		}
+		type payload struct{ Message msg `json:"message"` }
+		for _, tok := range tokens {
+			b, _ := json.Marshal(payload{Message: msg{
+				Token:   tok,
+				Notif:   notif{Title: title, Body: body},
+				Data:    data,
+				Android: androidCfg{Priority: "high"},
+			}})
+			req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(b))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+accessToken)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil { fmt.Printf("[fcm] send: %v\n", err); continue }
+			if resp.StatusCode != 200 {
+				fmt.Printf("[fcm] status %d\n", resp.StatusCode)
+			} else {
+				fmt.Printf("[fcm] OK → %.10s...\n", tok)
+			}
+			resp.Body.Close()
+		}
+	}()
 }

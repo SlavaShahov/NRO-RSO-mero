@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "799997236255",
+    "project_id": "rso-events",
+    "storage_bucket": "rso-events.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:799997236255:android:8a3360bb42373e6748b12a",
+        "android_client_info": {
+          "package_name": "ru.rso.nsk.events"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBQU3khZdD3rWBWtn7UjJ1KmNOU7oldLUY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

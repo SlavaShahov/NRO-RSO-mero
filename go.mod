@@ -9,10 +9,12 @@ require (
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/xuri/excelize/v2 v2.9.0
 	golang.org/x/crypto v0.37.0
+	golang.org/x/oauth2 v0.24.0
 	golang.org/x/text v0.29.0
 )
 
 require (
+	cloud.google.com/go/compute/metadata v0.3.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect

@@ -368,6 +368,11 @@ class ApiClient {
     await _post('/api/v1/notifications/$id/read', {}, auth: true);
   }
 
+  // Регистрируем FCM-токен для Android push-уведомлений
+  Future<void> registerFcmToken(String token) async {
+    await _post('/api/v1/me/fcm-token', {'token': token}, auth: true);
+  }
+
 
   // ── Смена email ───────────────────────────────────────────────────────────
 

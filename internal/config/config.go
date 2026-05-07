@@ -24,6 +24,8 @@ type Config struct {
 	CodeSMTPPort     int
 	CodeSMTPUser     string
 	CodeSMTPPassword string
+	FCMCredentialsFile string
+	FCMProjectID       string
 }
 
 func Load() Config {
@@ -42,6 +44,8 @@ func Load() Config {
 		CodeSMTPPort:     envInt("CODE_SMTP_PORT", 587),
 		CodeSMTPUser:     env("CODE_SMTP_USER", ""),
 		CodeSMTPPassword: env("CODE_SMTP_PASSWORD", ""),
+		FCMCredentialsFile: env("FCM_CREDENTIALS_FILE", ""),
+		FCMProjectID:       env("FCM_PROJECT_ID", ""),
 	}
 }
 

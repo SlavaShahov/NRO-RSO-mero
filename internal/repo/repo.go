@@ -286,27 +286,6 @@ func (r *Repository) ReviewHQStaffRequest(ctx context.Context,
 		WHERE id = (SELECT user_id FROM hq_staff WHERE id = $1)
 	`, requestID)
 	if err != nil { return err }
-	if approved {
-		// Пишем историю: переход в штабную роль (F-23)
-		_, err = tx.Exec(ctx, `
-			INSERT INTO user_position_history
-			    (user_id, old_unit_position_id, new_unit_position_id,
-			     old_unit_id, new_unit_id, changed_by, reason)
-			SELECT
-			    u.id,
-			    u.unit_position_id,
-			    NULL,
-			    u.unit_id,
-			    NULL,
-			    $2,
-			    'ШСО-заявка #' || hs.id::text || ' одобрена (' || lh.name || ')'
-			FROM hq_staff hs
-			JOIN users u ON u.id = hs.user_id
-			JOIN local_headquarters lh ON lh.id = hs.local_headquarters_id
-			WHERE hs.id = $1
-		`, requestID, reviewerID)
-		if err != nil { return err }
-	}
 	return tx.Commit(ctx)
 }
 
@@ -935,7 +914,7 @@ func (r *Repository) ReviewPositionRequest(ctx context.Context, requestID, revie
 	`, requestID, status, reviewerID, comment)
 	if err != nil { return err }
 	if approved {
-		// 1. Применяем новую должность
+		// Немедленно применяем новую должность
 		_, err = tx.Exec(ctx, `
 			UPDATE users u
 			SET unit_position_id = pr.new_unit_position_id,
@@ -944,24 +923,6 @@ func (r *Repository) ReviewPositionRequest(ctx context.Context, requestID, revie
 			FROM position_change_requests pr
 			WHERE pr.id = $1 AND u.id = pr.user_id
 		`, requestID)
-		if err != nil { return err }
-		// 2. Пишем историю изменения должности (F-23)
-		_, err = tx.Exec(ctx, `
-			INSERT INTO user_position_history
-			    (user_id, old_unit_position_id, new_unit_position_id,
-			     old_unit_id, new_unit_id, changed_by, reason)
-			SELECT
-			    u.id,
-			    u.unit_position_id,
-			    pr.new_unit_position_id,
-			    u.unit_id,
-			    COALESCE(pr.new_unit_id, u.unit_id),
-			    $2,
-			    'Заявка #' || pr.id::text || ' одобрена'
-			FROM position_change_requests pr
-			JOIN users u ON u.id = pr.user_id
-			WHERE pr.id = $1
-		`, requestID, reviewerID)
 		if err != nil { return err }
 	}
 	return tx.Commit(ctx)
@@ -1113,4 +1074,64 @@ func (r *Repository) ListUpcomingEventDates(ctx context.Context) ([]struct{ ID i
 		result = append(result, row)
 	}
 	return result, nil
+}
+
+// ─── FCM токены ───────────────────────────────────────────────────────────────
+
+func (r *Repository) SaveFcmToken(ctx context.Context, userID int, token string) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO user_fcm_tokens (user_id, token, updated_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (user_id) DO UPDATE
+		    SET token = $2, updated_at = NOW()
+	`, userID, token)
+	return err
+}
+
+func (r *Repository) GetFcmToken(ctx context.Context, userID int) (string, error) {
+	var token string
+	err := r.db.QueryRow(ctx, `
+		SELECT token FROM user_fcm_tokens WHERE user_id = $1
+	`, userID).Scan(&token)
+	if IsNotFound(err) { return "", nil }
+	return token, err
+}
+
+func (r *Repository) GetAdminFcmTokens(ctx context.Context) ([]string, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT ft.token
+		FROM user_fcm_tokens ft
+		JOIN users u ON u.id = ft.user_id
+		JOIN unit_positions up ON up.id = u.unit_position_id
+		JOIN system_roles sr ON sr.id = up.system_role_id
+		WHERE sr.code IN ('superadmin','regional_admin','local_admin')
+		  AND u.is_blocked = false
+	`)
+	if err != nil { return nil, err }
+	defer rows.Close()
+	var tokens []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil { return nil, err }
+		tokens = append(tokens, t)
+	}
+	return tokens, nil
+}
+
+func (r *Repository) GetAllFcmTokens(ctx context.Context) ([]string, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT ft.token
+		FROM user_fcm_tokens ft
+		JOIN users u ON u.id = ft.user_id
+		WHERE u.is_blocked = false
+	`)
+	if err != nil { return nil, err }
+	defer rows.Close()
+	var tokens []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil { return nil, err }
+		tokens = append(tokens, t)
+	}
+	return tokens, nil
 }
