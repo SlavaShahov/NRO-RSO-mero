@@ -47,3 +47,8 @@ Thumbs.db
 
 # Go
 go.sum.bak
+
+
+firebase-service-account.json
+*.pem
+*.p8
