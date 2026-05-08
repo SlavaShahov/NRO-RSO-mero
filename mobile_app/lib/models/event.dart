@@ -7,7 +7,7 @@ class EventItem {
   final int participantsCount;
   final String? userRegistrationStatus;
   final String? bannerBase64; // баннер мероприятия
-  final bool isRegistrationClosed; // закрыта ли регистрация (3 раб. дня)
+  final bool isRegistrationClosed; // закрыта ли регистрация (3 раб. дня до мероприятия)
 
   const EventItem({required this.id, required this.title, required this.description,
     required this.eventDate, required this.startTime, required this.endTime,

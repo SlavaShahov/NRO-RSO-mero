@@ -286,6 +286,27 @@ func (r *Repository) ReviewHQStaffRequest(ctx context.Context,
 		WHERE id = (SELECT user_id FROM hq_staff WHERE id = $1)
 	`, requestID)
 	if err != nil { return err }
+	if approved {
+		// Пишем историю: переход в штабную роль (F-23)
+		_, err = tx.Exec(ctx, `
+			INSERT INTO user_position_history
+			    (user_id, old_unit_position_id, new_unit_position_id,
+			     old_unit_id, new_unit_id, changed_by, reason)
+			SELECT
+			    u.id,
+			    u.unit_position_id,
+			    NULL,
+			    u.unit_id,
+			    NULL,
+			    $2,
+			    'ШСО-заявка #' || hs.id::text || ' одобрена (' || lh.name || ')'
+			FROM hq_staff hs
+			JOIN users u ON u.id = hs.user_id
+			JOIN local_headquarters lh ON lh.id = hs.local_headquarters_id
+			WHERE hs.id = $1
+		`, requestID, reviewerID)
+		if err != nil { return err }
+	}
 	return tx.Commit(ctx)
 }
 
@@ -923,6 +944,24 @@ func (r *Repository) ReviewPositionRequest(ctx context.Context, requestID, revie
 			FROM position_change_requests pr
 			WHERE pr.id = $1 AND u.id = pr.user_id
 		`, requestID)
+		if err != nil { return err }
+		// 2. Пишем историю изменения должности (F-23)
+		_, err = tx.Exec(ctx, `
+			INSERT INTO user_position_history
+			    (user_id, old_unit_position_id, new_unit_position_id,
+			     old_unit_id, new_unit_id, changed_by, reason)
+			SELECT
+			    u.id,
+			    u.unit_position_id,
+			    pr.new_unit_position_id,
+			    u.unit_id,
+			    COALESCE(pr.new_unit_id, u.unit_id),
+			    $2,
+			    'Заявка #' || pr.id::text || ' одобрена'
+			FROM position_change_requests pr
+			JOIN users u ON u.id = pr.user_id
+			WHERE pr.id = $1
+		`, requestID, reviewerID)
 		if err != nil { return err }
 	}
 	return tx.Commit(ctx)

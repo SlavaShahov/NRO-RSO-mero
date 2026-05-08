@@ -323,7 +323,27 @@ func (h *Handler) listEvents(w http.ResponseWriter, r *http.Request) {
 		r.URL.Query().Get("search"))
 	if err != nil { writeError(w, 500, "events query failed"); return }
 	if evs == nil { evs = []models.Event{} }
-	writeJSON(w, 200, evs)
+	// Добавляем флаг is_registration_closed чтобы Flutter
+	// скрывал кнопку регистрации до попытки
+	loc, _ := time.LoadLocation("Asia/Novosibirsk")
+	if loc == nil { loc = time.FixedZone("NSK", 7*3600) }
+	type eventWithClosed struct {
+		models.Event
+		IsRegistrationClosed bool `json:"is_registration_closed"`
+	}
+	result := make([]eventWithClosed, len(evs))
+	for i, e := range evs {
+		closed := false
+		var year, month, day int
+		if _, err := fmt.Sscanf(e.EventDate, "%d-%d-%d", &year, &month, &day); err == nil {
+			eventDate   := time.Date(year, time.Month(month), day, 0, 0, 0, 0, loc)
+			deadlineDay := registrationDeadline(eventDate)
+			deadline    := time.Date(deadlineDay.Year(), deadlineDay.Month(), deadlineDay.Day(), 0, 0, 0, 0, loc)
+			closed = time.Now().In(loc).After(deadline)
+		}
+		result[i] = eventWithClosed{Event: e, IsRegistrationClosed: closed}
+	}
+	writeJSON(w, 200, result)
 }
 
 func (h *Handler) createEvent(w http.ResponseWriter, r *http.Request) {
@@ -373,7 +393,6 @@ func (h *Handler) createEvent(w http.ResponseWriter, r *http.Request) {
 	}(context.Background(), in.Title, in.EventDate, in.Location, id)
 
 	// Запускаем отложенную отправку списка участников
-	go h.scheduleAndSendEmail(context.Background(), id, in.EventDate)
 	writeJSON(w, 201, map[string]any{"event_id": id, "status": "created"})
 }
 
@@ -715,12 +734,14 @@ func (h *Handler) RestoreSchedules(ctx context.Context) {
 	for _, ev := range events {
 		var year, month, day int
 		if _, err := fmt.Sscanf(ev.EventDate, "%d-%d-%d", &year, &month, &day); err != nil { continue }
-		eventDate := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+		nsk, _ := time.LoadLocation("Asia/Novosibirsk")
+		if nsk == nil { nsk = time.FixedZone("NSK", 7*3600) }
+		eventDate := time.Date(year, time.Month(month), day, 0, 0, 0, 0, nsk)
 		deadlineDay := emailSubWorkdays(eventDate, 3)
 		deadline := time.Date(deadlineDay.Year(), deadlineDay.Month(), deadlineDay.Day(),
-			23, 59, 59, 0, time.UTC)
+			0, 0, 0, 0, nsk)
 		// Горутину нужно запускать только если дедлайн ещё не прошёл
-		if time.Now().UTC().Before(deadline) {
+		if time.Now().In(nsk).Before(deadline) {
 			eid := ev.ID
 			date := ev.EventDate
 			go h.scheduleAndSendEmail(ctx, eid, date)
@@ -736,10 +757,13 @@ func (h *Handler) scheduleAndSendEmail(ctx context.Context, eventID int, eventDa
 	if h.cfg.EmailTo == "" { return }
 	var year, month, day int
 	if _, err := fmt.Sscanf(eventDateStr, "%d-%d-%d", &year, &month, &day); err != nil { return }
-	eventDate := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	nsk, _ := time.LoadLocation("Asia/Novosibirsk")
+	if nsk == nil { nsk = time.FixedZone("NSK", 7*3600) }
+	eventDate := time.Date(year, time.Month(month), day, 0, 0, 0, 0, nsk)
 	lastDay := emailSubWorkdays(eventDate, 3)
-	deadline := time.Date(lastDay.Year(), lastDay.Month(), lastDay.Day(), 23, 59, 59, 0, time.UTC)
-	now := time.Now().UTC()
+	// Дедлайн совпадает с закрытием регистрации: 3 раб. дня до мероприятия, 00:00 НСК
+	deadline := time.Date(lastDay.Year(), lastDay.Month(), lastDay.Day(), 0, 0, 0, 0, nsk)
+	now := time.Now().In(nsk)
 	if now.Before(deadline) {
 		select {
 		case <-time.After(deadline.Sub(now)):
@@ -1082,6 +1106,18 @@ func (h *Handler) saveFcmToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "save token failed"); return
 	}
 	writeJSON(w, 200, map[string]any{"status": "ok"})
+}
+
+// registrationDeadline — день закрытия регистрации (3 рабочих дня до мероприятия)
+func registrationDeadline(eventDate time.Time) time.Time {
+	result := eventDate
+	for subtracted := 0; subtracted < 3; {
+		result = result.AddDate(0, 0, -1)
+		if result.Weekday() != time.Saturday && result.Weekday() != time.Sunday {
+			subtracted++
+		}
+	}
+	return result
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {

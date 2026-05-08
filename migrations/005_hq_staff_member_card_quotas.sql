@@ -25,10 +25,10 @@ CREATE TABLE IF NOT EXISTS hq_positions (
 );
 
 INSERT INTO hq_positions (code, name, sort_order) VALUES
-    ('commander',   'Командир штаба',  1),
-    ('commissioner','Комиссар штаба',  2),
-    ('engineer',    'Инженер штаба',   3),
-    ('worker',      'Работник штаба',  4)
+    ('commander',   'Командир ШСО',  1),
+    ('commissioner','Комиссар ШСО',  2),
+    ('engineer',    'Инженер ШСО',   3),
+    ('worker',      'Работник ШСО',  4)
 ON CONFLICT (code) DO NOTHING;
 
 -- Таблица назначений штабников
