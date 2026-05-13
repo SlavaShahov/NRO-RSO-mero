@@ -31,8 +31,7 @@ android {
 
     defaultConfig {
         applicationId = "ru.rso.nsk.events"
-        minSdk = flutter.minSdkVersion
-        minSdk = flutter.minSdkVersion
+        minSdk = 23
         targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
