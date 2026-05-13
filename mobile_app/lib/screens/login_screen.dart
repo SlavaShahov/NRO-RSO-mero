@@ -49,8 +49,8 @@ class _LoginScreenState extends State<LoginScreen> {
         builder: (_) => ForgotPasswordScreen(api: widget.auth.api)));
   }
 
-  static const _blue  = Color(0xFF1E3A8A);
-  static const _green = Color(0xFF4CAF50);
+  static const _blue  = Color(0xFF6B8F2E);
+  static const _green = Color(0xFFA7BD6A);
 
   @override
   Widget build(BuildContext context) {
@@ -61,11 +61,9 @@ class _LoginScreenState extends State<LoginScreen> {
           children: [
             const SizedBox(height: 40),
             Center(
-              child: Container(
-                width: 120, height: 120,
-                decoration: const BoxDecoration(
-                    color: _green, shape: BoxShape.circle),
-                child: const Icon(Icons.groups_2, color: Colors.white, size: 70),
+              child: ClipOval(
+                child: Image.asset('assets/icon/icon.png',
+                    width: 120, height: 120, fit: BoxFit.cover),
               ),
             ),
             const SizedBox(height: 32),
@@ -73,7 +71,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700))),
             const SizedBox(height: 8),
             const Center(child: Text(
-                'Управление мероприятиями\nстуденческих отрядов РСО',
+                'Управление мероприятиями\nстуденческих отрядов НРО',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 16, color: Colors.black54))),
             const SizedBox(height: 40),
@@ -364,7 +362,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     : TextButton(
                     onPressed: _busy ? null : _resendCode,
                     child: const Text('Отправить код повторно',
-                        style: TextStyle(color: Color(0xFF4CAF50)))),
+                        style: TextStyle(color: Color(0xFFA7BD6A)))),
               ),
             ],
           ],

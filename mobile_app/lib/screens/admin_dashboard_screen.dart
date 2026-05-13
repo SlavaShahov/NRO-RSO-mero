@@ -53,7 +53,7 @@ class AdminDashboardScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: const Color(0xFF1E3A8A),
+                color: const Color(0xFF6B8F2E),
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Row(children: [
@@ -100,7 +100,7 @@ class AdminDashboardScreen extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(vertical: 16),
             decoration: BoxDecoration(
-              color: const Color(0xFFEAF2FF),
+              color: const Color(0xFFF0F5DC),
               borderRadius: BorderRadius.circular(14),
             ),
             child: Row(
@@ -122,7 +122,7 @@ class AdminDashboardScreen extends StatelessWidget {
             icon:     Icons.qr_code_scanner,
             title:    'Сканировать QR-код',
             subtitle: 'Отметить посещение участника',
-            color:    const Color(0xFF1E3A8A),
+            color:    const Color(0xFF6B8F2E),
             onTap:    () => Navigator.pushNamed(context, '/scanner'),
           ),
           const SizedBox(height: 8),
@@ -170,7 +170,7 @@ class AdminDashboardScreen extends StatelessWidget {
               leading: Container(
                 width: 44, height: 44,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEAF2FF),
+                  color: const Color(0xFFF0F5DC),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Column(
@@ -179,7 +179,7 @@ class AdminDashboardScreen extends StatelessWidget {
                     Text(e.dayStr,
                         style: const TextStyle(
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF1E3A8A),
+                            color: Color(0xFF6B8F2E),
                             fontSize: 16)),
                     Text(e.monthStr,
                         style: const TextStyle(
@@ -409,7 +409,7 @@ class _CreateEventSheetState extends State<_CreateEventSheet> {
               height: 120, width: double.infinity,
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
-                color: const Color(0xFFEAF2FF),
+                color: const Color(0xFFF0F5DC),
                 borderRadius: BorderRadius.circular(12),
                 image: _bannerBase64 != null
                     ? DecorationImage(
@@ -419,9 +419,9 @@ class _CreateEventSheetState extends State<_CreateEventSheet> {
               ),
               child: _bannerBase64 == null
                   ? const Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Icon(Icons.add_photo_alternate_outlined, size: 32, color: Color(0xFF1E3A8A)),
+                Icon(Icons.add_photo_alternate_outlined, size: 32, color: Color(0xFF6B8F2E)),
                 SizedBox(height: 4),
-                Text('Добавить баннер', style: TextStyle(color: Color(0xFF1E3A8A), fontSize: 12)),
+                Text('Добавить баннер', style: TextStyle(color: Color(0xFF6B8F2E), fontSize: 12)),
               ])
                   : Align(alignment: Alignment.topRight,
                   child: Padding(padding: const EdgeInsets.all(6),
@@ -555,7 +555,7 @@ class _Kpi extends StatelessWidget {
         style: const TextStyle(
             fontSize: 30,
             fontWeight: FontWeight.bold,
-            color: Color(0xFF1E3A8A))),
+            color: Color(0xFF6B8F2E))),
     Text(title,
         style: const TextStyle(fontSize: 11, color: Colors.black54)),
   ]);
@@ -711,16 +711,16 @@ class _EditEventSheetState extends State<_EditEventSheet> {
           height: 120, width: double.infinity,
           margin: const EdgeInsets.only(bottom: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFFEAF2FF), borderRadius: BorderRadius.circular(12),
+            color: const Color(0xFFF0F5DC), borderRadius: BorderRadius.circular(12),
             image: _bannerBase64 != null && _bannerBase64!.isNotEmpty
                 ? DecorationImage(image: MemoryImage(base64Decode(_bannerBase64!)), fit: BoxFit.cover)
                 : null,
           ),
           child: _bannerBase64 == null || _bannerBase64!.isEmpty
               ? const Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Icon(Icons.add_photo_alternate_outlined, size: 32, color: Color(0xFF1E3A8A)),
+            Icon(Icons.add_photo_alternate_outlined, size: 32, color: Color(0xFF6B8F2E)),
             SizedBox(height: 4),
-            Text('Изменить баннер', style: TextStyle(color: Color(0xFF1E3A8A), fontSize: 12)),
+            Text('Изменить баннер', style: TextStyle(color: Color(0xFF6B8F2E), fontSize: 12)),
           ])
               : Align(alignment: Alignment.topRight,
               child: Padding(padding: const EdgeInsets.all(6),
@@ -902,10 +902,10 @@ class _UsersManagementState extends State<UsersManagementScreen> {
             return ListTile(
               contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
               leading: CircleAvatar(
-                backgroundColor: blocked ? Colors.red.shade100 : const Color(0xFFEAF2FF),
+                backgroundColor: blocked ? Colors.red.shade100 : const Color(0xFFF0F5DC),
                 child: Text(u.firstName.isNotEmpty ? u.firstName[0].toUpperCase() : '?',
                     style: TextStyle(
-                        color: blocked ? Colors.red.shade700 : const Color(0xFF1E3A8A),
+                        color: blocked ? Colors.red.shade700 : const Color(0xFF6B8F2E),
                         fontWeight: FontWeight.bold)),
               ),
               title: Text(u.fullName,

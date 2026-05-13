@@ -77,7 +77,7 @@ class _HQViewState extends State<_HQView> {
     );
   }
 
-  static const _blue = Color(0xFF1E3A8A);
+  static const _blue = Color(0xFF6B8F2E);
 
   @override
   Widget build(BuildContext context) {
@@ -209,7 +209,7 @@ class _UnitViewState extends State<_UnitView> {
     );
   }
 
-  static const _blue = Color(0xFF1E3A8A);
+  static const _blue = Color(0xFF6B8F2E);
 
   @override
   Widget build(BuildContext context) {
@@ -383,7 +383,7 @@ class _MemberSheetState extends State<_MemberSheet> {
     });
   }
 
-  static const _blue = Color(0xFF1E3A8A);
+  static const _blue = Color(0xFF6B8F2E);
 
   @override
   Widget build(BuildContext context) {
@@ -413,7 +413,7 @@ class _MemberSheetState extends State<_MemberSheet> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           decoration: BoxDecoration(
-              color: const Color(0xFFEAF2FF),
+              color: const Color(0xFFF0F5DC),
               borderRadius: BorderRadius.circular(20)),
           child: Text(m.positionName,
               style: const TextStyle(color: _blue, fontSize: 13)),
@@ -500,11 +500,11 @@ class _AvatarWidget extends StatelessWidget {
     }
     return CircleAvatar(
       radius: radius,
-      backgroundColor: const Color(0xFFEAF2FF),
+      backgroundColor: const Color(0xFFF0F5DC),
       child: Text(
         firstName.isNotEmpty ? firstName[0].toUpperCase() : '?',
         style: TextStyle(
-            color: const Color(0xFF1E3A8A),
+            color: const Color(0xFF6B8F2E),
             fontWeight: FontWeight.bold,
             fontSize: fontSize * 0.45),
       ),

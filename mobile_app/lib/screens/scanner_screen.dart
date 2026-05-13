@@ -90,7 +90,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
           Center(child: Container(
             width: 260, height: 260,
             decoration: BoxDecoration(
-                border: Border.all(color: Colors.blueAccent, width: 3),
+                border: Border.all(color: const Color(0xFFA7BD6A), width: 3),
                 borderRadius: BorderRadius.circular(16)),
           )),
 
@@ -168,7 +168,7 @@ class _UserCard extends StatelessWidget {
   const _UserCard({required this.result});
   final Map<String, dynamic> result;
 
-  static const _blue = Color(0xFF1E3A8A);
+  static const _blue = Color(0xFF6B8F2E);
 
   @override
   Widget build(BuildContext context) {
@@ -216,7 +216,7 @@ class _UserCard extends StatelessWidget {
               backgroundImage: MemoryImage(avatarBytes))
               : CircleAvatar(
               radius: 40,
-              backgroundColor: const Color(0xFFEAF2FF),
+              backgroundColor: const Color(0xFFF0F5DC),
               child: Text(
                 initials.toUpperCase(),
                 style: const TextStyle(
@@ -251,7 +251,7 @@ class _UserCard extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                        color: const Color(0xFFEAF2FF),
+                        color: const Color(0xFFF0F5DC),
                         borderRadius: BorderRadius.circular(6)),
                     child: Text(positionName,
                         style: const TextStyle(

@@ -266,7 +266,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     }
   }
 
-  static const _blue = Color(0xFF1E3A8A);
+  static const _blue = Color(0xFF6B8F2E);
 
   @override
   Widget build(BuildContext context) {
@@ -441,6 +441,17 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
             ),
 
           const SizedBox(height: 16),
+          // Согласие на обработку персональных данных
+          const Padding(
+            padding: EdgeInsets.only(bottom: 12),
+            child: Text(
+              'Нажимая «Зарегистрироваться», вы даёте согласие '
+                  'на обработку персональных данных в соответствии '
+                  'с Федеральным законом № 152-ФЗ «О персональных данных».',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 11, color: Colors.black38),
+            ),
+          ),
           SizedBox(
             height: 52,
             child: ElevatedButton(
@@ -508,7 +519,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
             backgroundImage: _avatarBytes != null
                 ? MemoryImage(_avatarBytes!) : null,
             child: _avatarBytes == null
-                ? const Icon(Icons.person_outline, size: 52, color: Color(0xFF1E3A8A))
+                ? const Icon(Icons.person_outline, size: 52, color: Color(0xFF6B8F2E))
                 : null,
           ),
           Positioned(
@@ -760,7 +771,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
           children: [
             const SizedBox(height: 24),
             const Icon(Icons.mark_email_unread_outlined,
-                size: 64, color: Color(0xFF1E3A8A)),
+                size: 64, color: Color(0xFF6B8F2E)),
             const SizedBox(height: 20),
             Text('Код отправлен на ${widget.email}',
                 textAlign: TextAlign.center,
@@ -806,7 +817,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                   : TextButton(
                   onPressed: _busy ? null : _resend,
                   child: const Text('Отправить повторно',
-                      style: TextStyle(color: Color(0xFF4CAF50)))),
+                      style: TextStyle(color: Color(0xFFA7BD6A)))),
             ),
             TextButton(
               onPressed: () => Navigator.pop(context),

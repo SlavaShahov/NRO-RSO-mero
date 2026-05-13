@@ -69,71 +69,71 @@ class _EventsScreenState extends State<EventsScreen> {
         child: provider.isLoading
             ? const Center(child: CircularProgressIndicator())
             : provider.error != null
-                ? Center(
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    const Icon(Icons.wifi_off,
-                        size: 48, color: Colors.black26),
-                    const SizedBox(height: 12),
-                    Text(provider.error!,
-                        style: const TextStyle(color: Colors.black54),
-                        textAlign: TextAlign.center),
-                    const SizedBox(height: 12),
-                    ElevatedButton(
-                        onPressed: provider.refreshEvents,
-                        child: const Text('Повторить')),
-                  ]))
-                : ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      TextField(
-                        controller: _searchCtrl,
-                        decoration: InputDecoration(
-                          hintText: 'Поиск мероприятий...',
-                          prefixIcon: const Icon(Icons.search),
-                          filled: true,
-                          fillColor: Colors.white,
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none),
-                        ),
-                        onChanged: provider.setSearchQuery,
-                      ),
-                      const SizedBox(height: 12),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(children: [
-                          _Chip(text: 'Все',
-                              active: provider.selectedType.isEmpty,
-                              onTap: () => provider.setTypeFilter('')),
-                          _Chip(text: 'Спорт',
-                              active: provider.selectedType == 'sport',
-                              onTap: () => provider.setTypeFilter('sport')),
-                          _Chip(text: 'Культура',
-                              active: provider.selectedType == 'culture',
-                              onTap: () => provider.setTypeFilter('culture')),
-                          _Chip(text: 'Обучение',
-                              active: provider.selectedType == 'education',
-                              onTap: () => provider.setTypeFilter('education')),
-                          _Chip(text: 'Штаб',
-                              active: provider.selectedType == 'headquarters',
-                              onTap: () => provider.setTypeFilter('headquarters')),
-                          _Chip(text: 'Трудовое',
-                              active: provider.selectedType == 'labor',
-                              onTap: () => provider.setTypeFilter('labor')),
-                        ]),
-                      ),
-                      const SizedBox(height: 16),
-                      if (events.isEmpty)
-                        const Center(
-                          child: Text('Нет мероприятий',
-                              style: TextStyle(color: Colors.grey)),
-                        )
-                      else
-                        ...events.map((e) => _EventCard(
-                            event: e,
-                            onTap: () => _openEvent(context, e))),
-                    ],
-                  ),
+            ? Center(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.wifi_off,
+                  size: 48, color: Colors.black26),
+              const SizedBox(height: 12),
+              Text(provider.error!,
+                  style: const TextStyle(color: Colors.black54),
+                  textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                  onPressed: provider.refreshEvents,
+                  child: const Text('Повторить')),
+            ]))
+            : ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            TextField(
+              controller: _searchCtrl,
+              decoration: InputDecoration(
+                hintText: 'Поиск мероприятий...',
+                prefixIcon: const Icon(Icons.search),
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none),
+              ),
+              onChanged: provider.setSearchQuery,
+            ),
+            const SizedBox(height: 12),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(children: [
+                _Chip(text: 'Все',
+                    active: provider.selectedType.isEmpty,
+                    onTap: () => provider.setTypeFilter('')),
+                _Chip(text: 'Спорт',
+                    active: provider.selectedType == 'sport',
+                    onTap: () => provider.setTypeFilter('sport')),
+                _Chip(text: 'Культура',
+                    active: provider.selectedType == 'culture',
+                    onTap: () => provider.setTypeFilter('culture')),
+                _Chip(text: 'Обучение',
+                    active: provider.selectedType == 'education',
+                    onTap: () => provider.setTypeFilter('education')),
+                _Chip(text: 'Штаб',
+                    active: provider.selectedType == 'headquarters',
+                    onTap: () => provider.setTypeFilter('headquarters')),
+                _Chip(text: 'Трудовое',
+                    active: provider.selectedType == 'labor',
+                    onTap: () => provider.setTypeFilter('labor')),
+              ]),
+            ),
+            const SizedBox(height: 16),
+            if (events.isEmpty)
+              const Center(
+                child: Text('Нет мероприятий',
+                    style: TextStyle(color: Colors.grey)),
+              )
+            else
+              ...events.map((e) => _EventCard(
+                  event: e,
+                  onTap: () => _openEvent(context, e))),
+          ],
+        ),
       ),
     );
   }
@@ -153,7 +153,7 @@ class _Chip extends StatelessWidget {
         margin: const EdgeInsets.only(right: 8),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: active ? const Color(0xFF1E3A8A) : const Color(0xFFEAF2FF),
+          color: active ? const Color(0xFF6B8F2E) : const Color(0xFFF0F5DC),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(text,
@@ -209,7 +209,7 @@ class _EventCard extends StatelessWidget {
             decoration: BoxDecoration(
               color: past
                   ? Colors.grey.shade200
-                  : const Color(0xFFEAF2FF),
+                  : const Color(0xFFF0F5DC),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Column(children: [
@@ -219,7 +219,7 @@ class _EventCard extends StatelessWidget {
                       fontWeight: FontWeight.bold,
                       color: past
                           ? Colors.grey.shade500
-                          : const Color(0xFF1E3A8A))),
+                          : const Color(0xFF6B8F2E))),
               Text(event.monthStr, style: const TextStyle(fontSize: 12)),
             ]),
           ),
@@ -229,34 +229,34 @@ class _EventCard extends StatelessWidget {
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-              Text(event.title,
-                  style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                      color: past ? Colors.grey.shade600 : Colors.black)),
-              const SizedBox(height: 4),
-              Text(event.location,
-                  style: TextStyle(
-                      color: past
-                          ? Colors.grey.shade400
-                          : Colors.black54,
-                      fontSize: 13)),
-              const SizedBox(height: 6),
-              if (past)
-                Text('Завершилось',
-                    style: TextStyle(
-                        color: Colors.grey.shade400,
-                        fontSize: 13,
-                        fontStyle: FontStyle.italic))
-              else if (event.hasRegistration)
-                Text(event.isAttended ? '✓ Посетил' : '✓ Зарегистрирован',
-                    style: const TextStyle(
-                        color: Colors.green,
-                        fontWeight: FontWeight.w600))
-              else
-                Text('${event.participantsCount} участников',
-                    style: const TextStyle(fontWeight: FontWeight.w500)),
-            ]),
+                  Text(event.title,
+                      style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          color: past ? Colors.grey.shade600 : Colors.black)),
+                  const SizedBox(height: 4),
+                  Text(event.location,
+                      style: TextStyle(
+                          color: past
+                              ? Colors.grey.shade400
+                              : Colors.black54,
+                          fontSize: 13)),
+                  const SizedBox(height: 6),
+                  if (past)
+                    Text('Завершилось',
+                        style: TextStyle(
+                            color: Colors.grey.shade400,
+                            fontSize: 13,
+                            fontStyle: FontStyle.italic))
+                  else if (event.hasRegistration)
+                    Text(event.isAttended ? '✓ Посетил' : '✓ Зарегистрирован',
+                        style: const TextStyle(
+                            color: Colors.green,
+                            fontWeight: FontWeight.w600))
+                  else
+                    Text('${event.participantsCount} участников',
+                        style: const TextStyle(fontWeight: FontWeight.w500)),
+                ]),
           ),
         ]),
       ),

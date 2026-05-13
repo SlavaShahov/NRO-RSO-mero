@@ -294,7 +294,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     ));
   }
 
-  static const _blue = Color(0xFF1E3A8A);
+  static const _blue = Color(0xFF6B8F2E);
 
   @override
   Widget build(BuildContext context) {
@@ -522,7 +522,7 @@ class _InfoRow extends StatelessWidget {
     padding: const EdgeInsets.only(bottom: 8),
     child: Row(children: [
       Icon(icon, size: 18,
-          color: highlight ? Colors.orange.shade700 : const Color(0xFF1E3A8A)),
+          color: highlight ? Colors.orange.shade700 : const Color(0xFF6B8F2E)),
       const SizedBox(width: 10),
       Expanded(child: Text(label, style: TextStyle(fontSize: 14,
           color: muted ? Colors.black38 : Colors.black87,
@@ -537,12 +537,12 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(vertical: 14),
-    decoration: BoxDecoration(color: const Color(0xFFEAF2FF),
+    decoration: BoxDecoration(color: const Color(0xFFF0F5DC),
         borderRadius: BorderRadius.circular(12)),
     child: Column(children: [
       Text(value, maxLines: 1, overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold,
-              color: Color(0xFF1E3A8A))),
+              color: Color(0xFF6B8F2E))),
       const SizedBox(height: 2),
       Text(label, textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 11, color: Colors.black54)),
@@ -580,7 +580,7 @@ class _TicketCard extends StatelessWidget {
     child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('${reg.dayStr} ${reg.monthStr}, ${reg.startTimeShort}',
-            style: const TextStyle(color: Color(0xFF1E3A8A), fontWeight: FontWeight.w700)),
+            style: const TextStyle(color: Color(0xFF6B8F2E), fontWeight: FontWeight.w700)),
         const SizedBox(height: 6),
         Text(reg.eventTitle,
             style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
@@ -675,7 +675,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
     finally { if (mounted) setState(() => _busy = false); }
   }
 
-  static const _blue = Color(0xFF1E3A8A);
+  static const _blue = Color(0xFF6B8F2E);
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -763,7 +763,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         decoration: BoxDecoration(
-            color: active ? _blue : const Color(0xFFEAF2FF),
+            color: active ? _blue : const Color(0xFFF0F5DC),
             borderRadius: BorderRadius.circular(8)),
         child: Text(label, style: TextStyle(
             color: active ? Colors.white : Colors.black87,
@@ -1007,7 +1007,7 @@ class _ChangePositionSheetState extends State<ChangePositionSheet> {
     }
   }
 
-  static const _blue = Color(0xFF1E3A8A);
+  static const _blue = Color(0xFF6B8F2E);
   static const _deco = InputDecoration(
     border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(10))),
     contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -1028,7 +1028,7 @@ class _ChangePositionSheetState extends State<ChangePositionSheet> {
       const SizedBox(height: 12),
       // Переключатель
       Container(
-        decoration: BoxDecoration(color: const Color(0xFFEAF2FF),
+        decoration: BoxDecoration(color: const Color(0xFFF0F5DC),
             borderRadius: BorderRadius.circular(10)),
         padding: const EdgeInsets.all(4),
         child: Row(children: [

@@ -42,6 +42,7 @@ type Event struct {
 	CreatedAt              time.Time `json:"created_at"`
 	UserRegistrationStatus *string   `json:"user_registration_status,omitempty"`
 	UserParticipationType  *string   `json:"user_participation_type,omitempty"`
+	BannerBase64           string    `json:"banner_base64,omitempty"`
 }
 
 type HQ struct {

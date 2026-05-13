@@ -133,7 +133,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     height: 200,
     decoration: const BoxDecoration(
       gradient: LinearGradient(
-        colors: [Color(0xFF1E3A8A), Color(0xFF3B82F6)],
+        colors: [Color(0xFF6B8F2E), Color(0xFF3B82F6)],
         begin: Alignment.topLeft, end: Alignment.bottomRight,
       ),
     ),
@@ -251,7 +251,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                  color: const Color(0xFFEAF2FF),
+                  color: const Color(0xFFF0F5DC),
                   borderRadius: BorderRadius.circular(14)),
               child: Column(children: [
                 const Text('До начала мероприятия',

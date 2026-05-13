@@ -261,7 +261,7 @@ class _NotifTile extends StatelessWidget {
       case 'hq_staff_approved':       return Colors.green.shade700;
       case 'hq_staff_rejected':       return Colors.red.shade700;
       case 'position_change_request': return Colors.purple.shade600;
-      case 'new_event_created':       return const Color(0xFF1E3A8A);
+      case 'new_event_created':       return const Color(0xFF6B8F2E);
       default:                        return Colors.grey.shade600;
     }
   }
@@ -271,12 +271,12 @@ class _NotifTile extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
-        color: notif.isRead ? Colors.white : const Color(0xFFF0F5FF),
+        color: notif.isRead ? Colors.white : const Color(0xFFF5F9E8),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
             color: notif.isRead
                 ? Colors.black12
-                : const Color(0xFF1E3A8A).withValues(alpha: 0.3)),
+                : const Color(0xFF6B8F2E).withValues(alpha: 0.3)),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
@@ -307,14 +307,14 @@ class _NotifTile extends StatelessWidget {
                                   fontSize: 14,
                                   color: notif.isRead
                                       ? Colors.black87
-                                      : const Color(0xFF1E3A8A))),
+                                      : const Color(0xFF6B8F2E))),
                         ),
                         if (!notif.isRead)
                           Container(
                               width: 8,
                               height: 8,
                               decoration: const BoxDecoration(
-                                  color: Color(0xFF1E3A8A),
+                                  color: Color(0xFF6B8F2E),
                                   shape: BoxShape.circle)),
                       ]),
                       const SizedBox(height: 4),

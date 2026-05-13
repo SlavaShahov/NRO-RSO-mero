@@ -740,14 +740,24 @@ func (h *Handler) RestoreSchedules(ctx context.Context) {
 		deadlineDay := emailSubWorkdays(eventDate, 3)
 		deadline := time.Date(deadlineDay.Year(), deadlineDay.Month(), deadlineDay.Day(),
 			0, 0, 0, 0, nsk)
-		// Горутину нужно запускать только если дедлайн ещё не прошёл
-		if time.Now().In(nsk).Before(deadline) {
-			eid := ev.ID
-			date := ev.EventDate
+		eid  := ev.ID
+		date := ev.EventDate
+		now  := time.Now().In(nsk)
+		// Мероприятие ещё не прошло (проверяем по дате события, не дедлайна)
+		eventNotPast := now.Before(eventDate.Add(24 * time.Hour))
+		if !eventNotPast { continue }
+		if now.Before(deadline) {
+			// Дедлайн ещё впереди — ждём
 			go h.scheduleAndSendEmail(ctx, eid, date)
 			count++
 			fmt.Printf("[scheduler] restored schedule for event %d (%s), deadline %s\n",
 				eid, date, deadline.Format("2006-01-02 15:04:05"))
+		} else {
+			// Дедлайн уже прошёл пока сервер был выключен — отправляем сразу
+			go h.sendParticipantsEmail(ctx, eid)
+			count++
+			fmt.Printf("[scheduler] missed deadline for event %d (%s), sending now\n",
+				eid, date)
 		}
 	}
 	fmt.Printf("[scheduler] restored %d schedules\n", count)

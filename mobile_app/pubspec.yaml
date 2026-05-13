@@ -20,8 +20,23 @@ dependencies:
   firebase_core: ^3.0.0
   firebase_messaging: ^15.2.10
 dev_dependencies:
+  flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.3.9
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icon/icon.png
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/icon.png"
+  min_sdk_android: 21
+flutter_native_splash:
+  color: "#a7bd6a"
+  image: assets/icon/icon_splash.png
+  android_12:
+    color: "#a7bd6a"
+    icon_background_color: "#a7bd6a"

@@ -400,7 +400,8 @@ func (r *Repository) ListEvents(ctx context.Context, userID int,
 		           SELECT COALESCE(rg.participation_type,'participant')
 		           FROM registrations rg
 		           WHERE rg.event_id=e.id AND rg.user_id=$1 LIMIT 1
-		       ) ELSE NULL END
+		       ) ELSE NULL END,
+		       COALESCE(e.banner_base64,'')
 		FROM events e
 		JOIN event_levels   el ON el.id=e.level_id
 		JOIN event_types    et ON et.id=e.type_id
@@ -423,7 +424,8 @@ func (r *Repository) ListEvents(ctx context.Context, userID int,
 			&e.ParticipationMode,
 			&e.IsRegistrationRequired, &e.MaxParticipants, &e.MaxSpectators,
 			&e.CreatedAt, &e.ParticipantsCount, &e.SpectatorsCount,
-			&e.UserRegistrationStatus, &e.UserParticipationType); err != nil {
+			&e.UserRegistrationStatus, &e.UserParticipationType,
+			&e.BannerBase64); err != nil {
 			return nil, err
 		}
 		evs = append(evs, e)
@@ -544,6 +546,12 @@ func (r *Repository) MarkAttendance(ctx context.Context, registrationID, scanner
 		INSERT INTO attendances (registration_id, scanner_id, attended_at, scan_time)
 		VALUES ($1,$2,NOW(),NOW())
 	`, registrationID, scannerID); err != nil { return err }
+	// Обновляем статус регистрации на "attended"
+	if _, err := tx.Exec(ctx, `
+		UPDATE registrations
+		SET status_id = (SELECT id FROM registration_statuses WHERE code='attended')
+		WHERE id = $1
+	`, registrationID); err != nil { return err }
 	return tx.Commit(ctx)
 }
 

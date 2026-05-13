@@ -10,7 +10,7 @@
     <uses-permission android:name="android.permission.VIBRATE"/>
 
     <application
-        android:label="ru.rso.nsk.events"
+        android:label="НРО Меро"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 

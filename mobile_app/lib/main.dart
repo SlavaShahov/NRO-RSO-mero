@@ -80,21 +80,29 @@ class RsoApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(
-              seedColor: const Color(0xFF1E3A8A)),
+            seedColor: const Color(0xFFA7BD6A),
+            primary:   const Color(0xFFA7BD6A),
+            secondary: const Color(0xFFFFE2AA),
+          ),
           useMaterial3: true,
-          scaffoldBackgroundColor: const Color(0xFFF5F7FB),
+          scaffoldBackgroundColor: const Color(0xFFF9F6EF),
           appBarTheme: const AppBarTheme(
-            backgroundColor: Color(0xFF1E3A8A),
+            backgroundColor: Color(0xFFA7BD6A),
             foregroundColor: Colors.white,
             elevation: 0,
           ),
           elevatedButtonTheme: ElevatedButtonThemeData(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1E3A8A),
+              backgroundColor: const Color(0xFFA7BD6A),
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12)),
             ),
+          ),
+          navigationBarTheme: NavigationBarThemeData(
+            indicatorColor: const Color(0xFFFFE2AA),
+            labelTextStyle: WidgetStateProperty.all(
+                const TextStyle(fontSize: 12)),
           ),
         ),
         routes: {
@@ -159,8 +167,13 @@ class _MainShellState extends State<_MainShell> {
         label: 'Лента',
       ),
       NavigationDestination(
-        icon:         const Icon(Icons.groups_outlined),
-        selectedIcon: const Icon(Icons.groups),
+        // Отряд — рукопожатие, Штаб — щит
+        icon: user?.isHQStaff == true
+            ? const Icon(Icons.groups_outlined)
+            : const Icon(Icons.handshake_outlined),
+        selectedIcon: user?.isHQStaff == true
+            ? const Icon(Icons.groups)
+            : const Icon(Icons.handshake),
         // Штабникам надпись «Штаб», остальным «Отряд»
         label: user?.isHQStaff == true ? 'Штаб' : 'Отряд',
       ),
