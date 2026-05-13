@@ -94,6 +94,7 @@ func (h *Handler) Register(r chi.Router) {
 			r.Post("/me/fcm-token",             h.saveFcmToken)
 			r.Post("/me/avatar",                h.uploadAvatar)
 			r.Get("/me/avatar",                 h.getAvatar)
+			r.Delete("/me/avatar",              h.deleteAvatar)
 
 			// Notifications
 			r.Get("/notifications",             h.listNotifications)
@@ -385,9 +386,7 @@ func (h *Handler) createEvent(w http.ResponseWriter, r *http.Request) {
 	go func(bgCtx context.Context, title, date, loc string, eid int) {
 		b := "📅 " + date
 		if loc != "" { b += " • " + loc }
-		_ = h.svc.NotifyAllParticipants(bgCtx, "new_event_created",
-			"🎉 Новое мероприятие: "+title, b, map[string]any{"event_id": eid})
-		// FCM push всем пользователям
+		// Только FCM push — без inbox уведомления (иначе дубль)
 		h.svc.SendFcmToAll(bgCtx, "🎉 Новое мероприятие: "+title, b,
 			map[string]string{"type": "new_event_created", "event_id": fmt.Sprint(eid)})
 	}(context.Background(), in.Title, in.EventDate, in.Location, id)
@@ -654,6 +653,15 @@ func (h *Handler) getAvatar(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"avatar_base64": avatar})
 }
 
+func (h *Handler) deleteAvatar(w http.ResponseWriter, r *http.Request) {
+	uid, ok := r.Context().Value(middleware.UserIDKey).(int)
+	if !ok { writeError(w, 401, "unauthorized"); return }
+	if err := h.svc.SaveAvatar(r.Context(), uid, ""); err != nil {
+		writeError(w, 500, "delete avatar failed"); return
+	}
+	writeJSON(w, 200, map[string]any{"status": "deleted"})
+}
+
 // ── HQ Position check ─────────────────────────────────────────────────────────
 
 func (h *Handler) hqStaffCheckPosition(w http.ResponseWriter, r *http.Request) {
@@ -743,21 +751,20 @@ func (h *Handler) RestoreSchedules(ctx context.Context) {
 		eid  := ev.ID
 		date := ev.EventDate
 		now  := time.Now().In(nsk)
-		// Мероприятие ещё не прошло (проверяем по дате события, не дедлайна)
 		eventNotPast := now.Before(eventDate.Add(24 * time.Hour))
 		if !eventNotPast { continue }
 		if now.Before(deadline) {
-			// Дедлайн ещё впереди — ждём
 			go h.scheduleAndSendEmail(ctx, eid, date)
 			count++
 			fmt.Printf("[scheduler] restored schedule for event %d (%s), deadline %s\n",
 				eid, date, deadline.Format("2006-01-02 15:04:05"))
-		} else {
-			// Дедлайн уже прошёл пока сервер был выключен — отправляем сразу
+		} else if !ev.EmailSent {
 			go h.sendParticipantsEmail(ctx, eid)
 			count++
 			fmt.Printf("[scheduler] missed deadline for event %d (%s), sending now\n",
 				eid, date)
+		} else {
+			fmt.Printf("[scheduler] email already sent for event %d, skipping\n", eid)
 		}
 	}
 	fmt.Printf("[scheduler] restored %d schedules\n", count)
@@ -782,6 +789,7 @@ func (h *Handler) scheduleAndSendEmail(ctx context.Context, eventID int, eventDa
 		}
 	}
 	h.sendParticipantsEmail(ctx, eventID)
+	_ = h.svc.MarkEventEmailSent(ctx, eventID)
 }
 
 func emailSubWorkdays(t time.Time, n int) time.Time {

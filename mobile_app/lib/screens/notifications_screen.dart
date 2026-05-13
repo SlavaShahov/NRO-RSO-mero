@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -9,7 +8,9 @@ import '../providers/notifications_provider.dart';
 class AppNotification {
   final int id;
   final String typeCode, title, body;
-  final Map<String, dynamic>? data;
+  final int? refId;        // ID заявки или мероприятия
+  final String? refType;   // "request" | "event"
+  final bool? refApproved; // результат рассмотрения заявки
   final bool isRead;
   final DateTime createdAt;
 
@@ -18,32 +19,26 @@ class AppNotification {
     required this.typeCode,
     required this.title,
     required this.body,
-    this.data,
+    this.refId,
+    this.refType,
+    this.refApproved,
     required this.isRead,
     required this.createdAt,
   });
 
-  factory AppNotification.fromJson(Map<String, dynamic> j) {
-    final rawData = j['data'];
-    Map<String, dynamic>? data;
-    if (rawData is Map<String, dynamic>) {
-      data = rawData;
-    } else if (rawData is String && rawData.isNotEmpty && rawData != '{}') {
-      try {
-        data = jsonDecode(rawData) as Map<String, dynamic>?;
-      } catch (_) {}
-    }
-    return AppNotification(
-      id:        j['id']       as int,
-      typeCode:  (j['type_code']  ?? '') as String,
-      title:     (j['title']      ?? '') as String,
-      body:      (j['body']       ?? '') as String,
-      data:      data,
-      isRead:    (j['is_read']    ?? false) as bool,
-      createdAt: DateTime.tryParse((j['created_at'] ?? '') as String)
-          ?? DateTime.now(),
-    );
-  }
+  factory AppNotification.fromJson(Map<String, dynamic> j) =>
+      AppNotification(
+        id:          j['id'] as int,
+        typeCode:    (j['type_code']    ?? '') as String,
+        title:       (j['title']        ?? '') as String,
+        body:        (j['body']         ?? '') as String,
+        refId:       j['ref_id']        as int?,
+        refType:     j['ref_type']      as String?,
+        refApproved: j['ref_approved']  as bool?,
+        isRead:      (j['is_read']      ?? false) as bool,
+        createdAt:   DateTime.tryParse((j['created_at'] ?? '') as String)
+            ?? DateTime.now(),
+      );
 }
 
 /// Иконка колокольчика с бейджем непрочитанных
@@ -146,10 +141,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             final isPosRequest =
                 n.typeCode == 'position_change_request' &&
                     isAdmin && !n.isRead;
-            final requestId =
-            n.data?['request_id'] is int
-                ? n.data!['request_id'] as int
-                : null;
+            final requestId = n.refId;
             return _NotifTile(
               notif: n,
               onRead: () => context
@@ -261,7 +253,7 @@ class _NotifTile extends StatelessWidget {
       case 'hq_staff_approved':       return Colors.green.shade700;
       case 'hq_staff_rejected':       return Colors.red.shade700;
       case 'position_change_request': return Colors.purple.shade600;
-      case 'new_event_created':       return const Color(0xFF6B8F2E);
+      case 'new_event_created':       return const Color(0xFF1E3A8A);
       default:                        return Colors.grey.shade600;
     }
   }
@@ -271,12 +263,12 @@ class _NotifTile extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
-        color: notif.isRead ? Colors.white : const Color(0xFFF5F9E8),
+        color: notif.isRead ? Colors.white : const Color(0xFFF0F5FF),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
             color: notif.isRead
                 ? Colors.black12
-                : const Color(0xFF6B8F2E).withValues(alpha: 0.3)),
+                : const Color(0xFF1E3A8A).withValues(alpha: 0.3)),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
@@ -307,14 +299,14 @@ class _NotifTile extends StatelessWidget {
                                   fontSize: 14,
                                   color: notif.isRead
                                       ? Colors.black87
-                                      : const Color(0xFF6B8F2E))),
+                                      : const Color(0xFF1E3A8A))),
                         ),
                         if (!notif.isRead)
                           Container(
                               width: 8,
                               height: 8,
                               decoration: const BoxDecoration(
-                                  color: Color(0xFF6B8F2E),
+                                  color: Color(0xFF1E3A8A),
                                   shape: BoxShape.circle)),
                       ]),
                       const SizedBox(height: 4),

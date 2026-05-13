@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -23,6 +24,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   String? _error;
   Timer? _timer;
   Duration _remaining = Duration.zero;
+  Uint8List? _bannerBytes; // кеш декодированного баннера — избегаем base64Decode каждую секунду
   bool _timerStarted = false;
   bool _qrLoaded = false;
 
@@ -152,6 +154,14 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       if (event.hasRegistration && !_qrLoaded && !_loadingQr) {
         _loadExistingQr(event.id);
       }
+      // Декодируем баннер один раз при первом открытии
+      if (_bannerBytes == null &&
+          event.bannerBase64 != null && event.bannerBase64!.isNotEmpty) {
+        try {
+          final decoded = base64Decode(event.bannerBase64!);
+          if (mounted) setState(() => _bannerBytes = decoded);
+        } catch (_) {}
+      }
     });
 
     final days    = _remaining.inDays;
@@ -181,12 +191,13 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
           // Баннер — фото или градиент с иконкой
           ClipRRect(
             borderRadius: BorderRadius.circular(16),
-            child: event.bannerBase64 != null && event.bannerBase64!.isNotEmpty
+            child: _bannerBytes != null
                 ? Image.memory(
-              base64Decode(event.bannerBase64!),
+              _bannerBytes!,
               height: 200,
               width: double.infinity,
               fit: BoxFit.cover,
+              gaplessPlayback: true, // предотвращает мерцание при rebuild
               errorBuilder: (_, __, ___) => _defaultBanner(),
             )
                 : _defaultBanner(),

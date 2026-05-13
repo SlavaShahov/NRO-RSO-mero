@@ -185,7 +185,8 @@ class NotificationsProvider extends ChangeNotifier {
       await api.markAllNotificationsRead();
       notifications = notifications.map((n) => AppNotification(
         id: n.id, typeCode: n.typeCode, title: n.title,
-        body: n.body, data: n.data, isRead: true, createdAt: n.createdAt,
+        body: n.body, refId: n.refId, refType: n.refType,
+        refApproved: n.refApproved, isRead: true, createdAt: n.createdAt,
       )).toList();
       unreadCount = 0;
       notifyListeners();
@@ -200,7 +201,8 @@ class NotificationsProvider extends ChangeNotifier {
         final n = notifications[idx];
         notifications[idx] = AppNotification(
           id: n.id, typeCode: n.typeCode, title: n.title,
-          body: n.body, data: n.data, isRead: true, createdAt: n.createdAt,
+          body: n.body, refId: n.refId, refType: n.refType,
+          refApproved: n.refApproved, isRead: true, createdAt: n.createdAt,
         );
         if (unreadCount > 0) unreadCount--;
         notifyListeners();

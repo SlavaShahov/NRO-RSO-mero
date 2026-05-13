@@ -4,7 +4,7 @@ package repo
 //
 // Замените в repo.go:
 //   1. const userSelect — добавить LEFT JOIN hq_staff и логику роли
-//   2. func ReviewHQStaffRequest — добавить UPDATE users SET account_status
+//   2. func ReviewHQStaffRequest — account_status удалён (миграция 018)
 //
 // Либо добавьте этот файл как отдельный файл в пакет repo/ —
 // он переопределяет нужные части через новые функции.
@@ -25,7 +25,11 @@ const userSelectV2 = `
 	       COALESCE(u.phone,''),
 	       COALESCE(u.member_card_number,''),
 	       COALESCE(u.member_card_location,'with_user'),
-	       COALESCE(u.account_status,'active'),
+	       CASE
+	           WHEN hs_p.id IS NOT NULL THEN 'pending_approval'
+	           WHEN u.is_blocked = true THEN 'blocked'
+	           ELSE 'active'
+	       END,
 	       u.unit_id, u.unit_position_id,
 	       COALESCE(un.name,''),
 	       CASE WHEN hs.status='approved' THEN COALESCE(lh_hs.name,'') ELSE COALESCE(lh.name,'') END,
@@ -39,6 +43,7 @@ const userSelectV2 = `
 	LEFT JOIN hq_staff           hs    ON hs.user_id = u.id AND hs.status = 'approved'
 	LEFT JOIN local_headquarters lh_hs ON lh_hs.id = hs.local_headquarters_id
 	LEFT JOIN hq_positions       hp    ON hp.id   = hs.hq_position_id
+	LEFT JOIN hq_staff           hs_p  ON hs_p.user_id = u.id AND hs_p.status = 'pending'
 `
 
 // GetUserByEmailV2 — использует расширенный запрос с ролью штабника
@@ -87,20 +92,7 @@ func (r *Repository) ReviewHQStaffRequestV2(ctx context.Context,
 	`, requestID, status, reviewerID, comment)
 	if err != nil { return err }
 
-	// 2. Обновляем account_status пользователя и hq_name в профиле
-	if approved {
-		_, err = tx.Exec(ctx, `
-			UPDATE users SET account_status = 'active'
-			WHERE id = (SELECT user_id FROM hq_staff WHERE id = $1)
-		`, requestID)
-		if err != nil { return err }
-	} else {
-		_, err = tx.Exec(ctx, `
-			UPDATE users SET account_status = 'active'
-			WHERE id = (SELECT user_id FROM hq_staff WHERE id = $1)
-		`, requestID)
-		if err != nil { return err }
-	}
+	// account_status вычисляется из hq_staff.status (миграция 018)
 
 	return tx.Commit(ctx)
 }

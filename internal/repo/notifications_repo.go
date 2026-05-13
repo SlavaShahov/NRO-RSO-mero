@@ -2,37 +2,47 @@ package repo
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 )
 
 // UserNotification — уведомление в inbox пользователя
 type UserNotification struct {
-	ID        int             `json:"id"`
-	UserID    int             `json:"user_id"`
-	TypeCode  string          `json:"type_code"`
-	Title     string          `json:"title"`
-	Body      string          `json:"body"`
-	Data      json.RawMessage `json:"data,omitempty"`
-	IsRead    bool            `json:"is_read"`
-	CreatedAt time.Time       `json:"created_at"`
+	ID          int        `json:"id"`
+	UserID      int        `json:"user_id"`
+	TypeCode    string     `json:"type_code"`
+	Title       string     `json:"title"`
+	Body        string     `json:"body"`
+	RefID       *int       `json:"ref_id,omitempty"`       // ID заявки или мероприятия
+	RefType     *string    `json:"ref_type,omitempty"`     // "request" | "event"
+	RefApproved *bool      `json:"ref_approved,omitempty"` // результат рассмотрения заявки
+	IsRead      bool       `json:"is_read"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 // CreateNotification — отправить уведомление одному пользователю
 func (r *Repository) CreateNotification(ctx context.Context,
 	userID int, typeCode, title, body string, data map[string]any) error {
-	var raw []byte
+	// Извлекаем скалярные поля из data (после миграции 017)
+	var refID *int
+	var refType *string
+	var refApproved *bool
 	if data != nil {
-		var err error
-		raw, err = json.Marshal(data)
-		if err != nil {
-			return err
+		if v, ok := data["request_id"]; ok {
+			if id, ok := v.(int); ok { refID = &id }
+			s := "request"; refType = &s
+		} else if v, ok := data["event_id"]; ok {
+			if id, ok := v.(int); ok { refID = &id }
+			s := "event"; refType = &s
+		}
+		if v, ok := data["approved"]; ok {
+			if b, ok := v.(bool); ok { refApproved = &b }
 		}
 	}
 	_, err := r.db.Exec(ctx, `
-		INSERT INTO user_notifications (user_id, type_code, title, body, data)
-		VALUES ($1, $2, $3, $4, $5)
-	`, userID, typeCode, title, body, raw)
+		INSERT INTO user_notifications
+		    (user_id, type_code, title, body, ref_id, ref_type, ref_approved)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, userID, typeCode, title, body, refID, refType, refApproved)
 	return err
 }
 
@@ -40,23 +50,24 @@ func (r *Repository) CreateNotification(ctx context.Context,
 // нужно для ШСО-заявок и новых мероприятий
 func (r *Repository) CreateNotificationsForAdmins(ctx context.Context,
 	typeCode, title, body string, data map[string]any) error {
-	var raw []byte
+	var refID *int
+	var refType *string
 	if data != nil {
-		b, err := json.Marshal(data)
-		if err != nil {
-			return err
+		if v, ok := data["request_id"]; ok {
+			if id, ok := v.(int); ok { refID = &id }
+			s := "request"; refType = &s
 		}
-		raw = b
 	}
 	_, err := r.db.Exec(ctx, `
-		INSERT INTO user_notifications (user_id, type_code, title, body, data)
-		SELECT u.id, $1, $2, $3, $4
+		INSERT INTO user_notifications
+		    (user_id, type_code, title, body, ref_id, ref_type)
+		SELECT u.id, $1, $2, $3, $4, $5
 		FROM users u
 		JOIN unit_positions up ON up.id = u.unit_position_id
 		JOIN system_roles   sr ON sr.id = up.system_role_id
 		WHERE sr.code IN ('superadmin','regional_admin','local_admin')
 		  AND u.is_blocked = false
-	`, typeCode, title, body, raw)
+	`, typeCode, title, body, refID, refType)
 	return err
 }
 
@@ -64,7 +75,7 @@ func (r *Repository) CreateNotificationsForAdmins(ctx context.Context,
 func (r *Repository) ListNotifications(ctx context.Context, userID int) ([]UserNotification, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT id, user_id, type_code, title, body,
-		       COALESCE(data::text, '{}'), is_read, created_at
+		       ref_id, ref_type, ref_approved, is_read, created_at
 		FROM user_notifications
 		WHERE user_id = $1
 		ORDER BY created_at DESC
@@ -77,12 +88,12 @@ func (r *Repository) ListNotifications(ctx context.Context, userID int) ([]UserN
 	var result []UserNotification
 	for rows.Next() {
 		var n UserNotification
-		var dataStr string
-		if err := rows.Scan(&n.ID, &n.UserID, &n.TypeCode, &n.Title, &n.Body,
-			&dataStr, &n.IsRead, &n.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&n.ID, &n.UserID, &n.TypeCode, &n.Title, &n.Body,
+			&n.RefID, &n.RefType, &n.RefApproved, &n.IsRead, &n.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
-		n.Data = json.RawMessage(dataStr)
 		result = append(result, n)
 	}
 	return result, nil

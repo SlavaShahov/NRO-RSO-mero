@@ -222,6 +222,10 @@ class ApiClient {
         {'avatar_base64': base64Encode(bytes)}, auth: true);
   }
 
+  Future<void> deleteAvatar() async {
+    await _delete('/api/v1/me/avatar', auth: true);
+  }
+
   Future<String> getMyAvatar() async {
     final raw = await _rawGet(Uri.parse('$baseUrl/api/v1/me/avatar'),
         headers: _headers(auth: true));
@@ -569,6 +573,29 @@ class ApiClient {
         return _retryAfterRefresh(() async {
           final r2 = await http
               .post(Uri.parse('$baseUrl$path'), headers: _headers(auth: true))
+              .timeout(_timeout);
+          return _handle(r2) as Map<String, dynamic>;
+        });
+      }
+      return _handle(res) as Map<String, dynamic>;
+    } on SocketException {
+      throw const ApiException('Нет подключения к серверу.');
+    } on TimeoutException {
+      throw const ApiException('Сервер не отвечает.');
+    }
+  }
+
+  Future<Map<String, dynamic>> _delete(
+      String path, {bool auth = false}
+      ) async {
+    try {
+      final res = await http
+          .delete(Uri.parse('$baseUrl$path'), headers: _headers(auth: auth))
+          .timeout(_timeout);
+      if (res.statusCode == 401 && auth && !_isRefreshing) {
+        return _retryAfterRefresh(() async {
+          final r2 = await http
+              .delete(Uri.parse('$baseUrl$path'), headers: _headers(auth: true))
               .timeout(_timeout);
           return _handle(r2) as Map<String, dynamic>;
         });

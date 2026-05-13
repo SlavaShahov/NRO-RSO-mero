@@ -330,7 +330,7 @@ func (s *Service) GetEventBanner(ctx context.Context, eventID int) (string, erro
 }
 
 // ListUpcomingEventDates — для восстановления горутин при старте
-func (s *Service) ListUpcomingEventDates(ctx context.Context) ([]struct{ ID int; EventDate string }, error) {
+func (s *Service) ListUpcomingEventDates(ctx context.Context) ([]repo.EventScheduleRow, error) {
 	return s.repo.ListUpcomingEventDates(ctx)
 }
 
@@ -426,4 +426,8 @@ func sendFcmPush(ctx context.Context, credFile, projectID string, tokens []strin
 			resp.Body.Close()
 		}
 	}()
+}
+
+func (s *Service) MarkEventEmailSent(ctx context.Context, eventID int) error {
+	return s.repo.MarkEventEmailSent(ctx, eventID)
 }

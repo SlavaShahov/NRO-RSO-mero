@@ -37,7 +37,11 @@ const userSelect = `
 	       COALESCE(u.phone,''),
 	       COALESCE(u.member_card_number,''),
 	       COALESCE(u.member_card_location,'with_user'),
-	       COALESCE(u.account_status,'active'),
+	       CASE
+	           WHEN hs_pending.id IS NOT NULL THEN 'pending_approval'
+	           WHEN u.is_blocked = true       THEN 'blocked'
+	           ELSE 'active'
+	       END,
 	       u.unit_id, u.unit_position_id,
 	       COALESCE(un.name,''),
 	       CASE WHEN hs.status='approved' THEN COALESCE(lh_hs.name,'') ELSE COALESCE(lh_u.name,'') END,
@@ -51,6 +55,7 @@ const userSelect = `
 	LEFT JOIN hq_staff           hs    ON hs.user_id = u.id AND hs.status = 'approved'
 	LEFT JOIN local_headquarters lh_hs ON lh_hs.id = hs.local_headquarters_id
 	LEFT JOIN hq_positions       hp    ON hp.id    = hs.hq_position_id
+	LEFT JOIN hq_staff hs_pending ON hs_pending.user_id = u.id AND hs_pending.status = 'pending'
 `
 
 func scanUser(row pgx.Row) (models.User, error) {
@@ -113,7 +118,11 @@ func (r *Repository) ListUnitMembers(ctx context.Context, unitID int) ([]models.
 		       COALESCE(u.phone,''),
 		       COALESCE(u.member_card_number,''),
 		       COALESCE(u.member_card_location,'with_user'),
-		       COALESCE(u.account_status,'active'),
+		       CASE
+	           WHEN hs_pending.id IS NOT NULL THEN 'pending_approval'
+	           WHEN u.is_blocked = true       THEN 'blocked'
+	           ELSE 'active'
+	       END,
 		       u.unit_id, u.unit_position_id,
 		       COALESCE(un.name,''), COALESCE(lh.name,''), COALESCE(up.name,''),
 		       COALESCE(sr.code,'participant')
@@ -122,6 +131,7 @@ func (r *Repository) ListUnitMembers(ctx context.Context, unitID int) ([]models.
 		LEFT JOIN local_headquarters lh ON lh.id = un.local_headquarters_id
 		LEFT JOIN unit_positions     up ON up.id = u.unit_position_id
 		LEFT JOIN system_roles       sr ON sr.id = up.system_role_id
+		LEFT JOIN hq_staff hs_pending ON hs_pending.user_id = u.id AND hs_pending.status = 'pending'
 		WHERE u.unit_id=$1 AND u.is_blocked=false
 		ORDER BY
 		    CASE up.code WHEN 'commander' THEN 1 WHEN 'commissioner' THEN 2
@@ -146,7 +156,11 @@ func (r *Repository) ListAllMembersByHQ(ctx context.Context, hqID int) ([]models
 		       COALESCE(u.phone,''),
 		       COALESCE(u.member_card_number,''),
 		       COALESCE(u.member_card_location,'with_user'),
-		       COALESCE(u.account_status,'active'),
+		       CASE
+	           WHEN hs_pending.id IS NOT NULL THEN 'pending_approval'
+	           WHEN u.is_blocked = true       THEN 'blocked'
+	           ELSE 'active'
+	       END,
 		       u.unit_id, u.unit_position_id,
 		       COALESCE(un.name,''), COALESCE(lh.name,''), COALESCE(up.name,''),
 		       COALESCE(sr.code,'participant')
@@ -280,12 +294,7 @@ func (r *Repository) ReviewHQStaffRequest(ctx context.Context,
 		}
 		return err
 	}
-	// Обновляем account_status пользователя
-	_, err = tx.Exec(ctx, `
-		UPDATE users SET account_status = 'active'
-		WHERE id = (SELECT user_id FROM hq_staff WHERE id = $1)
-	`, requestID)
-	if err != nil { return err }
+	// account_status вычисляется из hq_staff.status (миграция 018)
 	if approved {
 		// Пишем историю: переход в штабную роль (F-23)
 		_, err = tx.Exec(ctx, `
@@ -543,15 +552,9 @@ func (r *Repository) MarkAttendance(ctx context.Context, registrationID, scanner
 		registrationID).Scan(&cnt); err != nil { return err }
 	if cnt > 0 { return ErrAlreadyAttended }
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO attendances (registration_id, scanner_id, attended_at, scan_time)
-		VALUES ($1,$2,NOW(),NOW())
+		INSERT INTO attendances (registration_id, scanner_id, scan_time)
+		VALUES ($1,$2,NOW())
 	`, registrationID, scannerID); err != nil { return err }
-	// Обновляем статус регистрации на "attended"
-	if _, err := tx.Exec(ctx, `
-		UPDATE registrations
-		SET status_id = (SELECT id FROM registration_statuses WHERE code='attended')
-		WHERE id = $1
-	`, registrationID); err != nil { return err }
 	return tx.Commit(ctx)
 }
 
@@ -1103,9 +1106,17 @@ func (r *Repository) GetEventByID(ctx context.Context, eventID int) (*models.Eve
 
 // ListUpcomingEventDates — все опубликованные мероприятия у которых дата >= сегодня.
 // Используется при старте сервера для восстановления горутин отправки email.
-func (r *Repository) ListUpcomingEventDates(ctx context.Context) ([]struct{ ID int; EventDate string }, error) {
+// EventScheduleRow — строка для планировщика email
+type EventScheduleRow struct {
+	ID        int
+	EventDate string
+	EmailSent bool
+}
+
+func (r *Repository) ListUpcomingEventDates(ctx context.Context) ([]EventScheduleRow, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT e.id, e.event_date::text
+		SELECT e.id, e.event_date::text,
+		       (e.email_sent_at IS NOT NULL) AS email_sent
 		FROM events e
 		JOIN event_statuses es ON es.id = e.status_id
 		WHERE es.code IN ('published','active')
@@ -1114,13 +1125,18 @@ func (r *Repository) ListUpcomingEventDates(ctx context.Context) ([]struct{ ID i
 	`)
 	if err != nil { return nil, err }
 	defer rows.Close()
-	var result []struct{ ID int; EventDate string }
+	var result []EventScheduleRow
 	for rows.Next() {
-		var row struct{ ID int; EventDate string }
-		if err := rows.Scan(&row.ID, &row.EventDate); err != nil { return nil, err }
+		var row EventScheduleRow
+		if err := rows.Scan(&row.ID, &row.EventDate, &row.EmailSent); err != nil { return nil, err }
 		result = append(result, row)
 	}
 	return result, nil
+}
+
+func (r *Repository) MarkEventEmailSent(ctx context.Context, eventID int) error {
+	_, err := r.db.Exec(ctx, `UPDATE events SET email_sent_at = NOW() WHERE id = $1`, eventID)
+	return err
 }
 
 // ─── FCM токены ───────────────────────────────────────────────────────────────

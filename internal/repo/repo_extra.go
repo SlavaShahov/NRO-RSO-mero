@@ -2,7 +2,6 @@ package repo
 
 import (
 	"context"
-	"encoding/json"
 
 	"rso-events/internal/models"
 )
@@ -33,17 +32,20 @@ func (r *Repository) GetHQStaffRequestByID(ctx context.Context, requestID int) (
 // CreateNotificationsForAll — уведомить всех активных пользователей (новое мероприятие)
 func (r *Repository) CreateNotificationsForAll(ctx context.Context,
 	typeCode, title, body string, data map[string]any) error {
-	var raw []byte
+	var refID *int
+	var refType *string
 	if data != nil {
-		b, err := json.Marshal(data)
-		if err != nil { return err }
-		raw = b
+		if v, ok := data["event_id"]; ok {
+			if id, ok := v.(int); ok { refID = &id }
+			s := "event"; refType = &s
+		}
 	}
 	_, err := r.db.Exec(ctx, `
-		INSERT INTO user_notifications (user_id, type_code, title, body, data)
-		SELECT u.id, $1, $2, $3, $4
+		INSERT INTO user_notifications
+		    (user_id, type_code, title, body, ref_id, ref_type)
+		SELECT u.id, $1, $2, $3, $4, $5
 		FROM users u
 		WHERE u.is_blocked = false
-	`, typeCode, title, body, raw)
+	`, typeCode, title, body, refID, refType)
 	return err
 }

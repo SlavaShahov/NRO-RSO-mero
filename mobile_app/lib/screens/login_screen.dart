@@ -48,8 +48,7 @@ class _LoginScreenState extends State<LoginScreen> {
     Navigator.push(context, MaterialPageRoute(
         builder: (_) => ForgotPasswordScreen(api: widget.auth.api)));
   }
-
-  static const _blue  = Color(0xFF6B8F2E);
+  
   static const _green = Color(0xFFA7BD6A);
 
   @override

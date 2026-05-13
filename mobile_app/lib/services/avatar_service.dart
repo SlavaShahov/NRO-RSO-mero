@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'api_client.dart';
+
 class AvatarService {
   static final AvatarService _instance = AvatarService._();
   factory AvatarService() => _instance;
@@ -11,10 +13,19 @@ class AvatarService {
 
   static const _prefix = 'avatar_';
 
-  /// Сохранить из файла (пикер галереи/камера)
-  Future<void> saveFromFile(int userId, File file) async {
+  /// Сохранить из файла (пикер галереи/камера) — локально + на сервер
+  Future<void> saveFromFile(int userId, File file, {ApiClient? api}) async {
     final bytes = await file.readAsBytes();
+    // Сохраняем локально
     await saveBytes(userId, bytes);
+    // Загружаем на сервер чтобы аватар сохранился после переустановки
+    if (api != null) {
+      try {
+        await api.uploadAvatar(bytes);
+      } catch (_) {
+        // Не блокируем UI если сервер недоступен — аватар уже есть локально
+      }
+    }
   }
 
   /// Сохранить из байтов (при загрузке с сервера)
@@ -32,9 +43,14 @@ class AvatarService {
     try { return base64Decode(b64); } catch (_) { return null; }
   }
 
-  /// Удалить локальный кэш аватарки
-  Future<void> delete(int userId) async {
+  /// Удалить локальный кэш аватарки (и на сервере если передан api)
+  Future<void> delete(int userId, {ApiClient? api}) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('$_prefix$userId');
+    if (api != null) {
+      try {
+        await api.deleteAvatar();
+      } catch (_) {}
+    }
   }
 }

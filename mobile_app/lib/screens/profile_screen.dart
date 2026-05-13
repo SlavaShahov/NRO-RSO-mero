@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -37,6 +38,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     _tabs = TabController(length: 2, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AuthProvider>().refreshProfile().then((_) {
+        if (!mounted) return;
         _lastRoleCode = context.read<AuthProvider>().user?.roleCode;
         _loadAvatar();
         _loadData();
@@ -67,7 +69,17 @@ class _ProfileScreenState extends State<ProfileScreen>
     final user = context.read<AuthProvider>().user;
     if (user == null) return;
     if (_avatarUserId == user.id && _avatarBytes != null) return;
-    final bytes = await AvatarService().getBytes(user.id);
+    var bytes = await AvatarService().getBytes(user.id);
+    if (bytes == null) {
+      try {
+        final b64 = await widget.api.getMyAvatar();
+        if (b64.isNotEmpty) {
+          final decoded = base64Decode(b64);
+          await AvatarService().saveBytes(user.id, decoded);
+          bytes = decoded;
+        }
+      } catch (_) {}
+    }
     if (mounted) setState(() { _avatarBytes = bytes; _avatarUserId = user.id; });
   }
 
@@ -135,7 +147,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     if (action == null) return;
 
     if (action == deleteAction) {
-      await AvatarService().delete(user.id);
+      await AvatarService().delete(user.id, api: widget.api);
       if (mounted) setState(() => _avatarBytes = null);
       return;
     }
@@ -146,7 +158,7 @@ class _ProfileScreenState extends State<ProfileScreen>
         source: source, maxWidth: 512, maxHeight: 512, imageQuality: 85);
     if (picked == null) return;
     final bytes = await picked.readAsBytes();
-    await AvatarService().saveFromFile(user.id, File(picked.path));
+    await AvatarService().saveFromFile(user.id, File(picked.path), api: widget.api);
     if (mounted) setState(() { _avatarBytes = bytes; _avatarUserId = user.id; });
   }
 
@@ -522,7 +534,7 @@ class _InfoRow extends StatelessWidget {
     padding: const EdgeInsets.only(bottom: 8),
     child: Row(children: [
       Icon(icon, size: 18,
-          color: highlight ? Colors.orange.shade700 : const Color(0xFF6B8F2E)),
+          color: highlight ? Colors.orange.shade700 : const Color(0xFF1E3A8A)),
       const SizedBox(width: 10),
       Expanded(child: Text(label, style: TextStyle(fontSize: 14,
           color: muted ? Colors.black38 : Colors.black87,
@@ -580,7 +592,7 @@ class _TicketCard extends StatelessWidget {
     child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('${reg.dayStr} ${reg.monthStr}, ${reg.startTimeShort}',
-            style: const TextStyle(color: Color(0xFF6B8F2E), fontWeight: FontWeight.w700)),
+            style: const TextStyle(color: Color(0xFF1E3A8A), fontWeight: FontWeight.w700)),
         const SizedBox(height: 6),
         Text(reg.eventTitle,
             style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
@@ -763,7 +775,7 @@ class _EditProfileSheetState extends State<_EditProfileSheet> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         decoration: BoxDecoration(
-            color: active ? _blue : const Color(0xFFF0F5DC),
+            color: active ? _blue : const Color(0xFFEAF2FF),
             borderRadius: BorderRadius.circular(8)),
         child: Text(label, style: TextStyle(
             color: active ? Colors.white : Colors.black87,
