@@ -386,7 +386,10 @@ func (h *Handler) createEvent(w http.ResponseWriter, r *http.Request) {
 	go func(bgCtx context.Context, title, date, loc string, eid int) {
 		b := "📅 " + date
 		if loc != "" { b += " • " + loc }
-		// Только FCM push — без inbox уведомления (иначе дубль)
+		// Inbox уведомление — сохраняется в БД
+		_ = h.svc.NotifyAllParticipants(bgCtx, "new_event_created",
+			"🎉 Новое мероприятие: "+title, b, map[string]any{"event_id": eid})
+		// FCM push — доставка на заблокированный экран
 		h.svc.SendFcmToAll(bgCtx, "🎉 Новое мероприятие: "+title, b,
 			map[string]string{"type": "new_event_created", "event_id": fmt.Sprint(eid)})
 	}(context.Background(), in.Title, in.EventDate, in.Location, id)
